@@ -9,14 +9,12 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-@Data
 @Entity
 @Table(name = "transactions")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString
 public class Transaction {
 
     @Id
@@ -48,8 +46,9 @@ public class Transaction {
     @Column(name = "is_recurring", nullable = false)
     private boolean recurring = false;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "recurrence_frequency")
-    private String recurrenceFrequency;
+    private EReccuringFrequency recurrenceFrequency;
 
     @NotNull(message = "Transaction date is required")
     @Column(name = "transaction_date", nullable = false)

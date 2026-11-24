@@ -33,7 +33,7 @@ public class Budget {
     @NotNull(message = "Budget limit is required")
     @Positive(message = "Budget limit must be greater than zero")
     @Column(name = "amount_limit", nullable = false, precision = 19, scale = 2)
-    private BigDecimal amountLimit;
+    private Long amountLimit;
 
     @NotNull(message = "Month is required")
     @Min(value = 1, message = "Month must be between 1 and 12")

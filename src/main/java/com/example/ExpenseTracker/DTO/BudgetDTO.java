@@ -1,15 +1,23 @@
 package com.example.ExpenseTracker.DTO;
-import jakarta.validation.constraints.*;
+
+import com.example.ExpenseTracker.core.ForecastCalculator;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 
 import java.util.List;
 
-public class BudgetDTO {
+public final class BudgetDTO {
     private BudgetDTO() {}
+
     public record BudgetRequest(
             @NotNull @Pattern(regexp = "\\d{4}-\\d{2}", message = "must look like 2026-11") String month,
             Long categoryId,
             @NotNull @Positive Long limitAmount,
             @Min(1) @Max(100) Integer warnPercent) {}
+
     public record BudgetStatus(
             Long id, String month, Long categoryId, String categoryName,
             long limitAmount, long spent, long remaining, int percentUsed, int warnPercent,
@@ -22,7 +30,5 @@ public class BudgetDTO {
             long incomeTotal, long expenseTotal, long net, int transactionCount,
             List<CategoryTotal> expensesByCategory,
             List<BudgetStatus> budgets,
-            com.example.ExpenseTracker.core.ForecastCalculator.Result forecast) {}
+            ForecastCalculator.Result forecast) {}
 }
-
-

@@ -32,7 +32,7 @@ public class ExpenseShare {
     @NotNull(message = "Share amount is required")
     @PositiveOrZero(message = "Share amount cannot be negative")
     @Column(name = "share_amount", nullable = false, precision = 19, scale = 2)
-    private BigDecimal shareAmount;
+    private Long shareAmount;
 
     @DecimalMin(value = "0.00", message = "Share percentage cannot be less than 0")
     @DecimalMax(value = "100.00", message = "Share percentage cannot exceed 100")

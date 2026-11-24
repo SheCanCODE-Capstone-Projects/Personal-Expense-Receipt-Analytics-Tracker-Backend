@@ -24,7 +24,7 @@ public class Transaction {
     @NotNull(message = "Amount is required")
     @Positive(message = "Amount must be greater than zero")
     @Column(nullable = false, precision = 19, scale = 2)
-    private BigDecimal amount;
+    private Long amount;
 
     @NotNull(message = "Transaction type is required")
     @Enumerated(EnumType.STRING)

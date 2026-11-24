@@ -2,71 +2,103 @@ package com.example.ExpenseTracker.core;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.List;
 import java.util.Map;
 
-public  final class ForecastCalculator {
+public final class ForecastCalculator {
+
+    private ForecastCalculator() {}
 
     public record Result(
-            String month, LocalDate asOf,
-            long spentSoFar, int daysElapsed, int daysInMonth, int remainingDays,
-            long dailyAverage, long last7DayAverage,
-            long forecast, long lowEstimate, long highEstimate,
-            String formula, List<String> assumptions) {}
+            YearMonth month,
+            LocalDate asOf,
+            int daysElapsed,
+            int daysInMonth,
+            int remainingDays,
+            long spentSoFar,
+            long averageDailySpend,
+            long projectedTotalExpense,
+            long projectedRemainingExpense,
+            String explanation) {}
 
-    private void ForecastCalculator() {}
+    public static Result calculate(
+            YearMonth month,
+            LocalDate asOf,
+            Map<LocalDate, Long> dailyExpenses) {
 
-    /** @param dailyExpenses expense total per date (only dates inside the month matter) */
-    public static Result calculate(YearMonth month, LocalDate asOf, Map<LocalDate, Long> dailyExpenses) {
-        int daysInMonth = month.lengthOfMonth();
-        int daysElapsed;
-        if (asOf.isBefore(month.atDay(1))) daysElapsed = 0;               // future month
-        else if (asOf.isAfter(month.atEndOfMonth())) daysElapsed = daysInMonth; // past month
-        else daysElapsed = asOf.getDayOfMonth();
-        int remaining = daysInMonth - daysElapsed;
+        YearMonth targetMonth = (month != null) ? month : YearMonth.now();
+        int daysInMonth = targetMonth.lengthOfMonth();
 
+        LocalDate effectiveDate = resolveEffectiveDate(targetMonth, asOf);
+        int daysElapsed = effectiveDate.getDayOfMonth();
+        int remainingDays = Math.max(0, daysInMonth - daysElapsed);
 
-        long spent = 0;
-        long last7 = 0;
-        LocalDate lastCountedDay = month.atDay(1).plusDays(Math.max(daysElapsed, 1) - 1L);
-        LocalDate last7Start = lastCountedDay.minusDays(6);
-        for (Map.Entry<LocalDate, Long> e : dailyExpenses.entrySet()) {
-            LocalDate d = e.getKey();
-            boolean inElapsedPart = YearMonth.from(d).equals(month) && d.getDayOfMonth() <= daysElapsed;
-            if (!inElapsedPart) continue;
-            spent += e.getValue();
-            if (!d.isBefore(last7Start)) last7 += e.getValue();
-        }
+        long spentSoFar = sumMonthExpenses(targetMonth, effectiveDate, dailyExpenses);
 
-        long dailyAvg = daysElapsed == 0 ? 0 : divideRounded(spent, daysElapsed);
-        int last7Days = Math.min(7, daysElapsed);
-        long last7Avg = last7Days == 0 ? 0 : divideRounded(last7, last7Days);
+        // Integer division (rounded down to whole currency units) to avoid floating point
+        long averageDailySpend = daysElapsed > 0 ? (spentSoFar / daysElapsed) : 0L;
+        long projectedRemainingExpense = averageDailySpend * remainingDays;
+        long projectedTotalExpense = spentSoFar + projectedRemainingExpense;
 
-        long forecast = daysElapsed == 0 ? 0 : divideRounded(spent * daysInMonth, daysElapsed);
-        long low = spent + Math.min(dailyAvg, last7Avg) * remaining;
-        long high = spent + Math.max(dailyAvg, last7Avg) * remaining;
+        String explanation = String.format(
+                "Spent %d across %d day(s) (avg %d/day); projected %d more over %d remaining day(s) = %d total.",
+                spentSoFar,
+                daysElapsed,
+                averageDailySpend,
+                projectedRemainingExpense,
+                remainingDays,
+                projectedTotalExpense
+        );
 
-        String formula = daysElapsed == 0
-                ? "No days of this month have passed yet, so there is nothing to project."
-                : String.format("(%,d RWF spent / %d days) x %d days = %,d RWF", spent, daysElapsed, daysInMonth, forecast);
-
-        List<String> assumptions = List.of(
-                "Spending continues at the same average daily rate for the rest of the month.",
-                "Only EXPENSE transactions in RWF are counted; income is ignored.",
-                "Range uses the lower/higher of the whole-month and last-7-day daily averages.",
-                "Large one-off purchases (e.g. rent) can make the estimate too high or too low.",
-                "This is an estimate for planning, not financial advice.");
-
-        return new Result(month.toString(), asOf, spent, daysElapsed, daysInMonth, remaining,
-                dailyAvg, last7Avg, forecast, low, high, formula, assumptions);
-    }
-    private static long divideRounded(long numerator, long denominator) {
-        if (denominator == 0) {
-            return 0;
-        }
-        return Math.round((double) numerator / denominator);
+        return new Result(
+                targetMonth,
+                effectiveDate,
+                daysElapsed,
+                daysInMonth,
+                remainingDays,
+                spentSoFar,
+                averageDailySpend,
+                projectedTotalExpense,
+                projectedRemainingExpense,
+                explanation
+        );
     }
 
+    private static LocalDate resolveEffectiveDate(YearMonth month, LocalDate asOf) {
+        LocalDate startOfMonth = month.atDay(1);
+        LocalDate endOfMonth = month.atEndOfMonth();
 
+        if (asOf == null) {
+            return endOfMonth;
+        }
+        if (asOf.isBefore(startOfMonth)) {
+            return startOfMonth;
+        }
+        if (asOf.isAfter(endOfMonth)) {
+            return endOfMonth;
+        }
+        return asOf;
+    }
 
+    private static long sumMonthExpenses(
+            YearMonth month,
+            LocalDate upToDate,
+            Map<LocalDate, Long> dailyExpenses) {
+
+        if (dailyExpenses == null || dailyExpenses.isEmpty()) {
+            return 0L;
+        }
+
+        long total = 0L;
+        for (Map.Entry<LocalDate, Long> entry : dailyExpenses.entrySet()) {
+            LocalDate date = entry.getKey();
+            Long amount = entry.getValue();
+            if (date == null || amount == null || amount <= 0L) {
+                continue;
+            }
+            if (YearMonth.from(date).equals(month) && !date.isAfter(upToDate)) {
+                total += amount;
+            }
+        }
+        return total;
+    }
 }

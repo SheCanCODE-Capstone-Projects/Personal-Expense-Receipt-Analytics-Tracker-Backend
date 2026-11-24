@@ -8,6 +8,6 @@ import java.util.Collection;
 import java.util.List;
 
 @Repository
-public interface ExpenseShareRepository extends JpaRepository<ExpenseShare,Long> {
-    List<ExpenseShare> findByGroupExpenseIdIn(Collection<Long> groupExpenseIds);
+public interface ExpenseShareRepository extends JpaRepository<ExpenseShare, Long> {
+    List<ExpenseShare> findBySharedExpenseIdIn(Collection<Long> sharedExpenseIds);
 }

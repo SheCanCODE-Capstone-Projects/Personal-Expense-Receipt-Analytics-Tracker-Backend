@@ -28,7 +28,7 @@ public class SharedExpense {
         private String description;
 
         @Column(nullable = false, precision = 19, scale = 2)
-        private BigDecimal totalAmount;
+        private Long totalAmount;
 
         @Column(nullable = false)
         private String currency;

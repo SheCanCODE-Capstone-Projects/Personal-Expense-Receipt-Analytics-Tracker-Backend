@@ -23,7 +23,7 @@ public class Settlement {
     @NotNull(message = "Amount is required")
     @Positive(message = "Settlement amount must be greater than zero")
     @Column(nullable = false, precision = 19, scale = 2)
-    private BigDecimal amount;
+    private Long amount;
 
     @NotNull(message = "Status is required")
     @Enumerated(EnumType.STRING)

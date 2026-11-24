@@ -29,11 +29,6 @@ public class Receipt {
     private String filePath;
 
     private String merchant;
-
-    @Positive(message = "Total amount must be greater than zero")
-    @Column(name = "total_amount", precision = 19, scale = 2)
-    private BigDecimal totalAmount;
-
     @Column(name = "receipt_date")
     private LocalDateTime receiptDate;
 

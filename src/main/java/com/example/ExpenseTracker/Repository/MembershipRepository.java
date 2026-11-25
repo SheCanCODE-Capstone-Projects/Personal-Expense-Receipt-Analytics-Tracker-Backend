@@ -7,10 +7,11 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface MembershipRepository extends JpaRepository<Membership, Long> {
-    List<Membership> findByGroupIdOrderById(Long groupId);
-    List<Membership> findByUserId(Long userId);
-    boolean existsByGroupIdAndUserId(Long groupId, Long userId);
+public interface MembershipRepository extends JpaRepository<Membership, UUID> {
+    List<Membership> findByGroupIdOrderByJoinedAtAscIdAsc(UUID groupId);
+    List<Membership> findByUserId(UUID userId);
+    boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
 }

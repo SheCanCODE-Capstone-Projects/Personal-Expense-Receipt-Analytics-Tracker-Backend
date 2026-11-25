@@ -1,9 +1,16 @@
 package com.example.ExpenseTracker.core;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Map;
 
+/**
+ * Month-end forecast: projectedTotal = spentSoFar / daysElapsed * daysInMonth.
+ * The average is kept exact and only the final projection is rounded (half-up to whole units),
+ * so the result matches the formula instead of drifting by up to (daysRemaining - 1) units.
+ */
 public final class ForecastCalculator {
 
     private ForecastCalculator() {}
@@ -15,7 +22,7 @@ public final class ForecastCalculator {
             int daysInMonth,
             int remainingDays,
             long spentSoFar,
-            long averageDailySpend,
+            BigDecimal averageDailySpend,
             long projectedTotalExpense,
             long projectedRemainingExpense,
             String explanation) {}
@@ -34,19 +41,24 @@ public final class ForecastCalculator {
 
         long spentSoFar = sumMonthExpenses(targetMonth, effectiveDate, dailyExpenses);
 
-        // Integer division (rounded down to whole currency units) to avoid floating point
-        long averageDailySpend = daysElapsed > 0 ? (spentSoFar / daysElapsed) : 0L;
-        long projectedRemainingExpense = averageDailySpend * remainingDays;
-        long projectedTotalExpense = spentSoFar + projectedRemainingExpense;
+        BigDecimal spent = BigDecimal.valueOf(spentSoFar);
+        BigDecimal averageDailySpend = spent.divide(BigDecimal.valueOf(daysElapsed), 2, RoundingMode.HALF_UP);
+        long projectedTotalExpense = spent.multiply(BigDecimal.valueOf(daysInMonth))
+                .divide(BigDecimal.valueOf(daysElapsed), 0, RoundingMode.HALF_UP)
+                .longValueExact();
+        long projectedRemainingExpense = projectedTotalExpense - spentSoFar;
 
         String explanation = String.format(
-                "Spent %d across %d day(s) (avg %d/day); projected %d more over %d remaining day(s) = %d total.",
+                "Spent %d across %d day(s) (avg %s/day). %d / %d x %d days = %d projected for the month, %d more over %d remaining day(s).",
                 spentSoFar,
                 daysElapsed,
-                averageDailySpend,
+                averageDailySpend.toPlainString(),
+                spentSoFar,
+                daysElapsed,
+                daysInMonth,
+                projectedTotalExpense,
                 projectedRemainingExpense,
-                remainingDays,
-                projectedTotalExpense
+                remainingDays
         );
 
         return new Result(

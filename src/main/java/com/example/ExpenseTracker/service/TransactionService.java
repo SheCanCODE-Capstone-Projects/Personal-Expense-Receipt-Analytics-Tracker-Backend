@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -36,27 +37,30 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final CategoryService categoryService;
 
     public TransactionService(
             TransactionRepository transactionRepository,
             AccountRepository accountRepository,
             CategoryRepository categoryRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            CategoryService categoryService) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
+        this.categoryService = categoryService;
     }
 
-    public TransactionResponse create(Long userId, TransactionRequest req) {
+    public TransactionResponse create(UUID userId, TransactionRequest req) {
         User user = getUserOr404(userId);
         Account account = resolveAccount(userId, req.accountId());
-        Category category = resolveCategory(userId, req.categoryId());
+        Category category = resolveCategory(userId, req.categoryId(), req.type());
 
         LocalDateTime txDateTime = toStartOfDayOrNow(req.date());
         String currency = resolveCurrency(req.currency(), account.getCurrency());
         EMethod paymentMethod = parsePaymentMethod(req.paymentMethod());
-        EReccuringFrequency frequency = req.recurring() ? EReccuringFrequency.MONTHLY : null;
+        EReccuringFrequency frequency = req.isRecurring() ? EReccuringFrequency.MONTHLY : null;
 
         String fingerprint = buildFingerprint(
                 userId, txDateTime, req.amount(), currency, req.type(), req.merchant(), req.note());
@@ -73,7 +77,7 @@ public class TransactionService {
         tx.setMerchant(req.merchant());
         tx.setPaymentMethod(paymentMethod);
         tx.setDescription(req.note());
-        tx.setRecurring(req.recurring());
+        tx.setRecurring(req.isRecurring());
         tx.setRecurrenceFrequency(frequency);
         tx.setFingerprint(fingerprint);
 
@@ -82,7 +86,7 @@ public class TransactionService {
     }
 
     @Transactional(readOnly = true)
-    public TransactionResponse getById(Long userId, Long transactionId) {
+    public TransactionResponse getById(UUID userId, UUID transactionId) {
         Transaction tx = transactionRepository.findByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
         return toResponse(tx, resolveSource(tx), false);
@@ -90,13 +94,13 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public List<TransactionResponse> list(
-            Long userId,
+            UUID userId,
             LocalDate from,
             LocalDate to,
             ETransactionType type,
             String currency,
-            Long categoryId,
-            Long accountId,
+            UUID categoryId,
+            UUID accountId,
             Boolean recurring) {
 
         LocalDateTime start = (from != null ? from : LocalDate.now().withDayOfMonth(1)).atStartOfDay();
@@ -109,7 +113,7 @@ public class TransactionService {
             rows = transactionRepository.findByUserIdAndTransactionTypeAndCurrencyAndTransactionDateBetween(
                     userId, type, currency.trim().toUpperCase(), start, end);
         } else {
-            rows = transactionRepository.findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescIdDesc(
+            rows = transactionRepository.findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescCreatedAtDesc(
                     userId, start, end);
         }
 
@@ -123,12 +127,14 @@ public class TransactionService {
                 .toList();
     }
 
-    public TransactionResponse update(Long userId, Long transactionId, TransactionRequest req) {
+    public TransactionResponse update(UUID userId, UUID transactionId, TransactionRequest req) {
         Transaction tx = transactionRepository.findByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
 
         Account account = resolveAccount(userId, req.accountId() != null ? req.accountId() : tx.getAccount().getId());
-        Category category = resolveCategory(userId, req.categoryId() != null ? req.categoryId() : tx.getCategory().getId());
+        Category category = req.categoryId() == null && tx.getCategory().getType() == req.type()
+                ? tx.getCategory()
+                : resolveCategory(userId, req.categoryId(), req.type());
         LocalDateTime txDateTime = req.date() != null ? req.date().atStartOfDay() : tx.getTransactionDate();
         String currency = resolveCurrency(req.currency(), account.getCurrency());
 
@@ -141,8 +147,8 @@ public class TransactionService {
         tx.setMerchant(req.merchant());
         tx.setPaymentMethod(parsePaymentMethod(req.paymentMethod()));
         tx.setDescription(req.note());
-        tx.setRecurring(req.recurring());
-        tx.setRecurrenceFrequency(req.recurring()
+        tx.setRecurring(req.isRecurring());
+        tx.setRecurrenceFrequency(req.isRecurring()
                 ? (tx.getRecurrenceFrequency() != null ? tx.getRecurrenceFrequency() : EReccuringFrequency.MONTHLY)
                 : null);
         tx.setFingerprint(buildFingerprint(
@@ -152,13 +158,13 @@ public class TransactionService {
         return toResponse(saved, resolveSource(saved), false);
     }
 
-    public void delete(Long userId, Long transactionId) {
+    public void delete(UUID userId, UUID transactionId) {
         Transaction tx = transactionRepository.findByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
         transactionRepository.delete(tx);
     }
 
-    public GenerateRecurringResult generateRecurring(Long userId, LocalDate upToDate) {
+    public GenerateRecurringResult generateRecurring(UUID userId, LocalDate upToDate) {
         User user = getUserOr404(userId);
         LocalDate targetEnd = upToDate != null ? upToDate : LocalDate.now().withDayOfMonth(
                 LocalDate.now().lengthOfMonth());
@@ -215,12 +221,12 @@ public class TransactionService {
         return new GenerateRecurringResult(created, skipped);
     }
 
-    private User getUserOr404(Long userId) {
+    private User getUserOr404(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 
-    private Account resolveAccount(Long userId, Long accountId) {
+    private Account resolveAccount(UUID userId, UUID accountId) {
         if (accountId != null) {
             return accountRepository.findByIdAndUser_Id(accountId, userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
@@ -238,14 +244,17 @@ public class TransactionService {
         return accountRepository.save(defaultAccount);
     }
 
-    private Category resolveCategory(Long userId, Long categoryId) {
+    private Category resolveCategory(UUID userId, UUID categoryId, ETransactionType type) {
         if (categoryId == null) {
-            throw new IllegalArgumentException("Category is required");
+            return categoryService.fallback(type);
         }
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
         if (category.getUser() != null && !category.getUser().getId().equals(userId)) {
             throw new ResourceNotFoundException("Category not found");
+        }
+        if (category.getType() != type) {
+            throw new IllegalArgumentException("Category '" + category.getName() + "' is for " + category.getType() + " transactions");
         }
         return category;
     }
@@ -289,7 +298,7 @@ public class TransactionService {
     }
 
     private String buildFingerprint(
-            Long userId,
+            UUID userId,
             LocalDateTime dateTime,
             Long amount,
             String currency,

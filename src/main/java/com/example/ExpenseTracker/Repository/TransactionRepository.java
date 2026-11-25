@@ -8,19 +8,20 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface TransactionRepository extends JpaRepository<Transaction, Long> {
-    Optional<Transaction> findByIdAndUserId(Long id, Long userId);
+public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
+    Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 
-    List<Transaction> findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescIdDesc(
-            Long userId, LocalDateTime from, LocalDateTime to);
+    List<Transaction> findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescCreatedAtDesc(
+            UUID userId, LocalDateTime from, LocalDateTime to);
 
     List<Transaction> findByUserIdAndTransactionTypeAndCurrencyAndTransactionDateBetween(
-            Long userId, ETransactionType transactionType, String currency, LocalDateTime from, LocalDateTime to);
+            UUID userId, ETransactionType transactionType, String currency, LocalDateTime from, LocalDateTime to);
 
     List<Transaction> findByUserIdAndRecurringTrueAndTransactionDateBetween(
-            Long userId, LocalDateTime from, LocalDateTime to);
+            UUID userId, LocalDateTime from, LocalDateTime to);
 
-    boolean existsByUserIdAndFingerprint(Long userId, String fingerprint);
+    boolean existsByUserIdAndFingerprint(UUID userId, String fingerprint);
 }

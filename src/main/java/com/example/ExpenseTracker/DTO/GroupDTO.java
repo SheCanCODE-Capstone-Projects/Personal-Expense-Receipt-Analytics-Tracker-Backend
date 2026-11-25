@@ -6,7 +6,9 @@ import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 public final class GroupDTO {
     private GroupDTO() {}
@@ -15,26 +17,33 @@ public final class GroupDTO {
 
     public record AddMemberRequest(String email, String displayName) {}
 
-    public record Participant(@NotNull Long memberId, BigDecimal value) {}
+    public record Participant(@NotNull UUID memberId, BigDecimal value) {}
 
     public record AddExpenseRequest(
             @NotBlank String description,
             @NotNull @Positive Long totalAmount,
-            @NotNull Long paidByMemberId,
+            @NotNull UUID paidByMemberId,
             LocalDate date,
             List<Participant> participants) {}
 
     public record SettlementRequest(
-            @NotNull Long fromMemberId,
-            @NotNull Long toMemberId,
-            @NotNull @Positive Long amount) {}
+            @NotNull UUID fromMemberId,
+            @NotNull UUID toMemberId,
+            @NotNull @Positive Long amount,
+            String currency) {}
 
-    public record MemberResponse(Long id, String displayName, Long userId) {}
+    public record GroupResponse(UUID id, String name, String description, UUID createdByUserId, LocalDateTime createdAt) {}
 
-    public record ShareResponse(Long memberId, String memberName, long amount) {}
+    public record SettlementResponse(
+            UUID id, UUID fromMemberId, UUID toMemberId, long amount, String currency,
+            String status, LocalDateTime settledAt) {}
+
+    public record MemberResponse(UUID id, String displayName, UUID userId) {}
+
+    public record ShareResponse(UUID memberId, String memberName, long amount) {}
 
     public record ExpenseResponse(
-            Long id, String description, long totalAmount, Long paidByMemberId,
-            String paidByName, String splitType, LocalDate date, List<ShareResponse> shares) {}
-    public record BalanceResponse(Long memberId, String memberName, long paid, long owed, long net) {}
+            UUID id, String description, long totalAmount, UUID paidByMemberId,
+            String paidByName, String splitType, LocalDate date, String currency, List<ShareResponse> shares) {}
+    public record BalanceResponse(UUID memberId, String memberName, String currency, long paid, long owed, long net) {}
 }

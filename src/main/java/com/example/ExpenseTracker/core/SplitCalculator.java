@@ -5,14 +5,15 @@ import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public final class SplitCalculator {
 
     private SplitCalculator() {}
 
-    public record ShareInput(Long participantId, BigDecimal value) {}
+    public record ShareInput(UUID participantId, BigDecimal value) {}
 
-    public record SplitOutcome(String splitType, Map<Long, Long> amountsByParticipant) {}
+    public record SplitOutcome(String splitType, Map<UUID, Long> amountsByParticipant) {}
 
     public static SplitOutcome calculate(long totalAmount, List<ShareInput> participants) {
         if (totalAmount <= 0L) {
@@ -48,7 +49,7 @@ public final class SplitCalculator {
         long baseShare = totalAmount / count;
         long remainder = totalAmount % count;
 
-        Map<Long, Long> result = new LinkedHashMap<>();
+        Map<UUID, Long> result = new LinkedHashMap<>();
         for (int i = 0; i < count; i++) {
             long share = baseShare + (i < remainder ? 1L : 0L);
             result.put(participants.get(i).participantId(), share);
@@ -60,7 +61,7 @@ public final class SplitCalculator {
         BigDecimal totalBd = BigDecimal.valueOf(totalAmount);
         BigDecimal hundred = BigDecimal.valueOf(100);
 
-        Map<Long, Long> rawShares = new LinkedHashMap<>();
+        Map<UUID, Long> rawShares = new LinkedHashMap<>();
         long assigned = 0L;
 
         for (ShareInput p : participants) {
@@ -76,7 +77,7 @@ public final class SplitCalculator {
 
         long remainder = totalAmount - assigned;
         if (remainder > 0L) {
-            Long firstId = participants.get(0).participantId();
+            UUID firstId = participants.get(0).participantId();
             rawShares.put(firstId, rawShares.get(firstId) + remainder);
         }
 
@@ -84,7 +85,7 @@ public final class SplitCalculator {
     }
 
     private static SplitOutcome splitCustom(long totalAmount, List<ShareInput> participants) {
-        Map<Long, Long> result = new LinkedHashMap<>();
+        Map<UUID, Long> result = new LinkedHashMap<>();
         long sum = 0L;
 
         for (ShareInput p : participants) {

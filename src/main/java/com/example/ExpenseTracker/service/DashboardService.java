@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @Transactional(readOnly = true)
@@ -42,7 +43,7 @@ public class DashboardService {
         this.userRepository = userRepository;
     }
 
-    public DashboardResponse getMonthlyDashboard(Long userId, String monthParam, String currencyParam) {
+    public DashboardResponse getMonthlyDashboard(UUID userId, String monthParam, String currencyParam) {
 
 
         if (!userRepository.existsById(userId)) {
@@ -57,15 +58,15 @@ public class DashboardService {
         LocalDateTime end = ym.atEndOfMonth().atTime(LocalTime.MAX);
 
         List<Transaction> monthTransactions = transactionRepository
-                .findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescIdDesc(userId, start, end)
+                .findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescCreatedAtDesc(userId, start, end)
                 .stream()
                 .filter(tx -> currency.equalsIgnoreCase(tx.getCurrency()))
                 .toList();
 
         long incomeTotal = 0L;
         long expenseTotal = 0L;
-        Map<Long, Long> expenseByCategoryId = new HashMap<>();
-        Map<Long, String> categoryNames = new HashMap<>();
+        Map<UUID, Long> expenseByCategoryId = new HashMap<>();
+        Map<UUID, String> categoryNames = new HashMap<>();
         Map<LocalDate, Long> dailyExpenses = new HashMap<>();
 
         LocalDate monthStart = ym.atDay(1);
@@ -79,7 +80,7 @@ public class DashboardService {
                 expenseTotal += amount;
 
                 if (tx.getCategory() != null) {
-                    Long catId = tx.getCategory().getId();
+                    UUID catId = tx.getCategory().getId();
                     categoryNames.putIfAbsent(catId, tx.getCategory().getName());
                     expenseByCategoryId.merge(catId, amount, Long::sum);
                 }
@@ -143,13 +144,13 @@ public class DashboardService {
     }
 
     private List<CategoryTotal> buildCategoryTotals(
-            Map<Long, Long> expenseByCategoryId,
-            Map<Long, String> categoryNames,
+            Map<UUID, Long> expenseByCategoryId,
+            Map<UUID, String> categoryNames,
             long totalExpenses) {
 
         return expenseByCategoryId.entrySet().stream()
                 .map(entry -> {
-                    Long catId = entry.getKey();
+                    UUID catId = entry.getKey();
                     long amount = entry.getValue();
                     int percentOfExpenses = totalExpenses > 0
                             ? (int) ((amount * 100L) / totalExpenses)
@@ -164,10 +165,10 @@ public class DashboardService {
             Budget budget,
             String monthStr,
             long totalExpense,
-            Map<Long, Long> expenseByCategoryId) {
+            Map<UUID, Long> expenseByCategoryId) {
 
         long limit = budget.getAmountLimit() != null ? budget.getAmountLimit() : 0L;
-        Long categoryId = budget.getCategory() != null ? budget.getCategory().getId() : null;
+        UUID categoryId = budget.getCategory() != null ? budget.getCategory().getId() : null;
         String categoryName = budget.getCategory() != null ? budget.getCategory().getName() : "Overall Monthly";
 
         long spent = categoryId != null

@@ -6,10 +6,11 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface AccountRepository extends JpaRepository<Account, Long> {
+public interface AccountRepository extends JpaRepository<Account, UUID> {
 
-    List<Account> findByUser_Id(Long userId);
-    Optional<Account> findByIdAndUser_Id(Long id, Long userId);
+    List<Account> findByUser_Id(UUID userId);
+    Optional<Account> findByIdAndUser_Id(UUID id, UUID userId);
 }

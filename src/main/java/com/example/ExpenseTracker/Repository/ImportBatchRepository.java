@@ -6,9 +6,10 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface ImportBatchRepository extends JpaRepository<ImportBatch,Long> {
-    Optional<ImportBatch> findByIdAndUserId(Long id, Long userId);
-    List<ImportBatch> findTop20ByUserIdOrderByCreatedAtDesc(Long userId);
+public interface ImportBatchRepository extends JpaRepository<ImportBatch, UUID> {
+    Optional<ImportBatch> findByIdAndUserId(UUID id, UUID userId);
+    List<ImportBatch> findTop20ByUserIdOrderByCreatedAtDesc(UUID userId);
 }

@@ -9,11 +9,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
+import java.util.UUID;
 
 
 
@@ -28,7 +29,7 @@ public class BudgetController {
 
         @PostMapping
         public ResponseEntity<BudgetStatus> saveBudget(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @RequestParam(required = false) String currency,
                 @Valid @RequestBody BudgetRequest request) {
             return ResponseEntity.ok(budgetService.saveBudget(userId, request, currency));
@@ -36,7 +37,7 @@ public class BudgetController {
 
         @GetMapping
         public ResponseEntity<List<BudgetStatus>> listByMonth(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @RequestParam String month,
                 @RequestParam(required = false) String currency) {
             return ResponseEntity.ok(budgetService.listByMonth(userId, month, currency));
@@ -44,16 +45,16 @@ public class BudgetController {
 
         @GetMapping("/{id}")
         public ResponseEntity<BudgetStatus> getById(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
-                @PathVariable Long id,
+                @AuthenticationPrincipal UUID userId,
+                @PathVariable UUID id,
                 @RequestParam(required = false) String currency) {
             return ResponseEntity.ok(budgetService.getById(userId, id, currency));
         }
 
         @DeleteMapping("/{id}")
         public ResponseEntity<Void> delete(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
-                @PathVariable Long id) {
+                @AuthenticationPrincipal UUID userId,
+                @PathVariable UUID id) {
             budgetService.delete(userId, id);
             return ResponseEntity.noContent().build();
         }

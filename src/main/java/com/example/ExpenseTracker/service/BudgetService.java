@@ -21,6 +21,7 @@ import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -44,13 +45,13 @@ public class BudgetService {
         this.userRepository = userRepository;
     }
 
-    public BudgetStatus saveBudget(Long userId, BudgetRequest request, String currencyParam) {
+    public BudgetStatus saveBudget(UUID userId, BudgetRequest request, String currencyParam) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         YearMonth ym = parseYearMonth(request.month());
         Category category = resolveCategory(userId, request.categoryId());
-        Long categoryId = category != null ? category.getId() : null;
+        UUID categoryId = category != null ? category.getId() : null;
 
         Budget budget = (categoryId != null)
                 ? budgetRepository.findByUserIdAndMonthAndYearAndCategoryId(
@@ -74,7 +75,7 @@ public class BudgetService {
     }
 
     @Transactional(readOnly = true)
-    public List<BudgetStatus> listByMonth(Long userId, String monthParam, String currencyParam) {
+    public List<BudgetStatus> listByMonth(UUID userId, String monthParam, String currencyParam) {
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
@@ -96,7 +97,7 @@ public class BudgetService {
     }
 
     @Transactional(readOnly = true)
-    public BudgetStatus getById(Long userId, Long budgetId, String currencyParam) {
+    public BudgetStatus getById(UUID userId, UUID budgetId, String currencyParam) {
         Budget budget = budgetRepository.findByIdAndUserId(budgetId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Budget not found"));
 
@@ -105,7 +106,7 @@ public class BudgetService {
         return buildBudgetStatus(budget, ym, currency, DEFAULT_WARN_PERCENT);
     }
 
-    public void delete(Long userId, Long budgetId) {
+    public void delete(UUID userId, UUID budgetId) {
         Budget budget = budgetRepository.findByIdAndUserId(budgetId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Budget not found"));
         budgetRepository.delete(budget);
@@ -122,7 +123,7 @@ public class BudgetService {
         }
     }
 
-    private Category resolveCategory(Long userId, Long categoryId) {
+    private Category resolveCategory(UUID userId, UUID categoryId) {
         if (categoryId == null) {
             return null;
         }
@@ -156,7 +157,7 @@ public class BudgetService {
             int warnPercent) {
 
         long limit = budget.getAmountLimit() != null ? budget.getAmountLimit() : 0L;
-        Long categoryId = budget.getCategory() != null ? budget.getCategory().getId() : null;
+        UUID categoryId = budget.getCategory() != null ? budget.getCategory().getId() : null;
         String categoryName = budget.getCategory() != null ? budget.getCategory().getName() : "Overall Monthly";
 
         long spent = categoryId != null
@@ -194,15 +195,15 @@ public class BudgetService {
         );
     }
 
-    private SpendSummary computeMonthSpend(Long userId, YearMonth ym, String currency) {
+    private SpendSummary computeMonthSpend(UUID userId, YearMonth ym, String currency) {
         LocalDateTime start = ym.atDay(1).atStartOfDay();
         LocalDateTime end = ym.atEndOfMonth().atTime(LocalTime.MAX);
 
         List<Transaction> transactions = transactionRepository
-                .findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescIdDesc(userId, start, end);
+                .findByUserIdAndTransactionDateBetweenOrderByTransactionDateDescCreatedAtDesc(userId, start, end);
 
         long totalExpense = 0L;
-        Map<Long, Long> byCategoryId = new HashMap<>();
+        Map<UUID, Long> byCategoryId = new HashMap<>();
 
         for (Transaction tx : transactions) {
             if (tx.getTransactionType() != ETransactionType.EXPENSE) {
@@ -221,5 +222,5 @@ public class BudgetService {
         return new SpendSummary(totalExpense, byCategoryId);
     }
 
-    private record SpendSummary(long totalExpense, Map<Long, Long> byCategoryId) {}
+    private record SpendSummary(long totalExpense, Map<UUID, Long> byCategoryId) {}
 }

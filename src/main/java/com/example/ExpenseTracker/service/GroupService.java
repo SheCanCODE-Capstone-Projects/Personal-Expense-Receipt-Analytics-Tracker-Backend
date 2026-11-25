@@ -5,8 +5,10 @@ import com.example.ExpenseTracker.DTO.GroupDTO.AddMemberRequest;
 import com.example.ExpenseTracker.DTO.GroupDTO.BalanceResponse;
 import com.example.ExpenseTracker.DTO.GroupDTO.CreateGroupRequest;
 import com.example.ExpenseTracker.DTO.GroupDTO.ExpenseResponse;
+import com.example.ExpenseTracker.DTO.GroupDTO.GroupResponse;
 import com.example.ExpenseTracker.DTO.GroupDTO.MemberResponse;
 import com.example.ExpenseTracker.DTO.GroupDTO.SettlementRequest;
+import com.example.ExpenseTracker.DTO.GroupDTO.SettlementResponse;
 import com.example.ExpenseTracker.DTO.GroupDTO.ShareResponse;
 import com.example.ExpenseTracker.Exception.ResourceNotFoundException;
 import com.example.ExpenseTracker.Model.ERole;
@@ -36,6 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -63,7 +66,7 @@ public class GroupService {
         this.userRepository = userRepository;
     }
 
-    public MemberResponse createGroup(Long creatorUserId, CreateGroupRequest request) {
+    public MemberResponse createGroup(UUID creatorUserId, CreateGroupRequest request) {
         User creator = getUserOr404(creatorUserId);
 
         Group group = new Group();
@@ -81,15 +84,17 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
-    public List<Group> listUserGroups(Long userId) {
+    public List<GroupResponse> listUserGroups(UUID userId) {
         getUserOr404(userId);
         return membershipRepository.findByUserId(userId).stream()
                 .map(Membership::getGroup)
                 .distinct()
+                .map(g -> new GroupResponse(g.getId(), g.getName(), g.getDescription(),
+                        g.getCreatedBy().getId(), g.getCreatedAt()))
                 .toList();
     }
 
-    public MemberResponse addMember(Long actorUserId, Long groupId, AddMemberRequest request) {
+    public MemberResponse addMember(UUID actorUserId, UUID groupId, AddMemberRequest request) {
         Group group = getGroupForMemberOr404(actorUserId, groupId);
 
         if (request.email() == null || request.email().isBlank()) {
@@ -113,19 +118,19 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
-    public List<MemberResponse> listMembers(Long actorUserId, Long groupId) {
+    public List<MemberResponse> listMembers(UUID actorUserId, UUID groupId) {
         getGroupForMemberOr404(actorUserId, groupId);
-        return membershipRepository.findByGroupIdOrderById(groupId).stream()
+        return membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId).stream()
                 .map(m -> toMemberResponse(m, null))
                 .toList();
     }
 
-    public ExpenseResponse addExpense(Long actorUserId, Long groupId, AddExpenseRequest request, String currencyParam) {
+    public ExpenseResponse addExpense(UUID actorUserId, UUID groupId, AddExpenseRequest request, String currencyParam) {
         Group group = getGroupForMemberOr404(actorUserId, groupId);
 
-        List<Membership> members = membershipRepository.findByGroupIdOrderById(groupId);
-        Map<Long, Membership> membersById = new HashMap<>();
-        Map<Long, Long> userIdToMemberId = new HashMap<>();
+        List<Membership> members = membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId);
+        Map<UUID, Membership> membersById = new HashMap<>();
+        Map<UUID, UUID> userIdToMemberId = new HashMap<>();
         for (Membership m : members) {
             membersById.put(m.getId(), m);
             userIdToMemberId.put(m.getUser().getId(), m.getId());
@@ -142,7 +147,7 @@ public class GroupService {
                     .map(m -> new SplitCalculator.ShareInput(m.getId(), null))
                     .toList();
         } else {
-            Set<Long> seenParticipantIds = new HashSet<>();
+            Set<UUID> seenParticipantIds = new HashSet<>();
             for (var p : request.participants()) {
                 if (!membersById.containsKey(p.memberId())) {
                     throw new ResourceNotFoundException("Participant member not found in group: " + p.memberId());
@@ -159,9 +164,7 @@ public class GroupService {
         SplitCalculator.SplitOutcome outcome = SplitCalculator.calculate(request.totalAmount(), inputs);
 
         LocalDate expenseDate = request.date() != null ? request.date() : LocalDate.now();
-        String currency = (currencyParam == null || currencyParam.isBlank())
-                ? "RWF"
-                : currencyParam.trim().toUpperCase();
+        String currency = resolveCurrency(currencyParam);
 
         SharedExpense expense = new SharedExpense();
         expense.setGroup(group);
@@ -173,7 +176,7 @@ public class GroupService {
         SharedExpense savedExpense = sharedExpenseRepository.save(expense);
 
         List<ShareResponse> shareResponses = new ArrayList<>();
-        for (Map.Entry<Long, Long> entry : outcome.amountsByParticipant().entrySet()) {
+        for (Map.Entry<UUID, Long> entry : outcome.amountsByParticipant().entrySet()) {
             Membership participantMembership = membersById.get(entry.getKey());
             long shareAmt = entry.getValue();
 
@@ -197,15 +200,16 @@ public class GroupService {
                 payerMembership.getUser().getFullName(),
                 outcome.splitType(),
                 expenseDate,
+                currency,
                 shareResponses);
     }
 
     @Transactional(readOnly = true)
-    public List<ExpenseResponse> listExpenses(Long actorUserId, Long groupId) {
+    public List<ExpenseResponse> listExpenses(UUID actorUserId, UUID groupId) {
         getGroupForMemberOr404(actorUserId, groupId);
 
-        List<Membership> members = membershipRepository.findByGroupIdOrderById(groupId);
-        Map<Long, Long> userIdToMemberId = new HashMap<>();
+        List<Membership> members = membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId);
+        Map<UUID, UUID> userIdToMemberId = new HashMap<>();
         for (Membership m : members) {
             userIdToMemberId.put(m.getUser().getId(), m.getId());
         }
@@ -215,13 +219,13 @@ public class GroupService {
             return List.of();
         }
 
-        List<Long> expenseIds = expenses.stream().map(SharedExpense::getId).toList();
+        List<UUID> expenseIds = expenses.stream().map(SharedExpense::getId).toList();
         List<ExpenseShare> allShares = expenseShareRepository.findBySharedExpenseIdIn(expenseIds);
 
-        Map<Long, List<ShareResponse>> sharesByExpenseId = new HashMap<>();
+        Map<UUID, List<ShareResponse>> sharesByExpenseId = new HashMap<>();
         for (ExpenseShare s : allShares) {
-            Long expId = s.getSharedExpense().getId();
-            Long memberId = userIdToMemberId.get(s.getUser().getId());
+            UUID expId = s.getSharedExpense().getId();
+            UUID memberId = userIdToMemberId.get(s.getUser().getId());
             long amt = s.getShareAmount() != null ? s.getShareAmount() : 0L;
             sharesByExpenseId
                     .computeIfAbsent(expId, k -> new ArrayList<>())
@@ -237,18 +241,21 @@ public class GroupService {
                         exp.getPayer().getFullName(),
                         "RECORDED",
                         exp.getExpenseDate() != null ? exp.getExpenseDate().toLocalDate() : LocalDate.now(),
+                        exp.getCurrency(),
                         sharesByExpenseId.getOrDefault(exp.getId(), List.of())))
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<BalanceResponse> getBalances(Long actorUserId, Long groupId) {
+    public List<BalanceResponse> getBalances(UUID actorUserId, UUID groupId, String currencyParam) {
         getGroupForMemberOr404(actorUserId, groupId);
+        // Amounts in different currencies can't be netted against each other, so balances are per currency.
+        String currency = resolveCurrency(currencyParam);
 
-        List<Membership> members = membershipRepository.findByGroupIdOrderById(groupId);
-        Map<Long, Long> userIdToMemberId = new HashMap<>();
-        Map<Long, Long> paidByMember = new HashMap<>();
-        Map<Long, Long> owedByMember = new HashMap<>();
+        List<Membership> members = membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId);
+        Map<UUID, UUID> userIdToMemberId = new HashMap<>();
+        Map<UUID, Long> paidByMember = new HashMap<>();
+        Map<UUID, Long> owedByMember = new HashMap<>();
 
         for (Membership m : members) {
             userIdToMemberId.put(m.getUser().getId(), m.getId());
@@ -257,11 +264,14 @@ public class GroupService {
         }
 
         List<SharedExpense> expenses = sharedExpenseRepository.findByGroupIdOrderByExpenseDateDescIdDesc(groupId);
-        List<Long> expenseIds = new ArrayList<>();
+        List<UUID> expenseIds = new ArrayList<>();
 
         for (SharedExpense exp : expenses) {
+            if (!currency.equalsIgnoreCase(exp.getCurrency())) {
+                continue;
+            }
             expenseIds.add(exp.getId());
-            Long payerMemberId = userIdToMemberId.get(exp.getPayer().getId());
+            UUID payerMemberId = userIdToMemberId.get(exp.getPayer().getId());
             if (payerMemberId != null) {
                 long amt = exp.getTotalAmount() != null ? exp.getTotalAmount() : 0L;
                 paidByMember.merge(payerMemberId, amt, Long::sum);
@@ -271,7 +281,7 @@ public class GroupService {
         if (!expenseIds.isEmpty()) {
             List<ExpenseShare> shares = expenseShareRepository.findBySharedExpenseIdIn(expenseIds);
             for (ExpenseShare share : shares) {
-                Long memberId = userIdToMemberId.get(share.getUser().getId());
+                UUID memberId = userIdToMemberId.get(share.getUser().getId());
                 if (memberId != null) {
                     long amt = share.getShareAmount() != null ? share.getShareAmount() : 0L;
                     owedByMember.merge(memberId, amt, Long::sum);
@@ -281,9 +291,9 @@ public class GroupService {
 
         List<Settlement> settlements = settlementRepository.findByGroupIdOrderByCreatedAtDesc(groupId);
         for (Settlement s : settlements) {
-            if (s.getStatus() == ESettlementStatus.SETTLED) {
-                Long fromMemberId = userIdToMemberId.get(s.getFromUser().getId());
-                Long toMemberId = userIdToMemberId.get(s.getToUser().getId());
+            if (s.getStatus() == ESettlementStatus.SETTLED && currency.equalsIgnoreCase(settlementCurrency(s))) {
+                UUID fromMemberId = userIdToMemberId.get(s.getFromUser().getId());
+                UUID toMemberId = userIdToMemberId.get(s.getToUser().getId());
                 long amt = s.getAmount() != null ? s.getAmount() : 0L;
                 if (fromMemberId != null) {
                     paidByMember.merge(fromMemberId, amt, Long::sum);
@@ -302,6 +312,7 @@ public class GroupService {
                     return new BalanceResponse(
                             m.getId(),
                             m.getUser().getFullName(),
+                            currency,
                             paid,
                             owed,
                             net);
@@ -310,20 +321,20 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
-    public List<SettlementCalculator.Transfer> suggestSettlements(Long actorUserId, Long groupId) {
-        List<BalanceResponse> balances = getBalances(actorUserId, groupId);
-        Map<Long, Long> netByMemberId = new HashMap<>();
+    public List<SettlementCalculator.Transfer> suggestSettlements(UUID actorUserId, UUID groupId, String currency) {
+        List<BalanceResponse> balances = getBalances(actorUserId, groupId, currency);
+        Map<UUID, Long> netByMemberId = new HashMap<>();
         for (BalanceResponse b : balances) {
             netByMemberId.put(b.memberId(), b.net());
         }
         return SettlementCalculator.settle(netByMemberId);
     }
 
-    public Settlement recordSettlement(Long actorUserId, Long groupId, SettlementRequest request) {
+    public SettlementResponse recordSettlement(UUID actorUserId, UUID groupId, SettlementRequest request) {
         Group group = getGroupForMemberOr404(actorUserId, groupId);
 
-        List<Membership> members = membershipRepository.findByGroupIdOrderById(groupId);
-        Map<Long, Membership> membersById = new HashMap<>();
+        List<Membership> members = membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId);
+        Map<UUID, Membership> membersById = new HashMap<>();
         for (Membership m : members) {
             membersById.put(m.getId(), m);
         }
@@ -342,24 +353,46 @@ public class GroupService {
         settlement.setFromUser(fromMember.getUser());
         settlement.setToUser(toMember.getUser());
         settlement.setAmount(request.amount());
+        settlement.setCurrency(resolveCurrency(request.currency()));
         settlement.setStatus(ESettlementStatus.SETTLED);
         settlement.setSettledAt(LocalDateTime.now());
 
-        return settlementRepository.save(settlement);
+        Settlement saved = settlementRepository.save(settlement);
+        return new SettlementResponse(saved.getId(), fromMember.getId(), toMember.getId(), saved.getAmount(),
+                saved.getCurrency(), saved.getStatus().name(), saved.getSettledAt());
     }
 
     @Transactional(readOnly = true)
-    public List<Settlement> listSettlements(Long actorUserId, Long groupId) {
+    public List<SettlementResponse> listSettlements(UUID actorUserId, UUID groupId) {
         getGroupForMemberOr404(actorUserId, groupId);
-        return settlementRepository.findByGroupIdOrderByCreatedAtDesc(groupId);
+        Map<UUID, UUID> userIdToMemberId = new HashMap<>();
+        for (Membership m : membershipRepository.findByGroupIdOrderByJoinedAtAscIdAsc(groupId)) {
+            userIdToMemberId.put(m.getUser().getId(), m.getId());
+        }
+        return settlementRepository.findByGroupIdOrderByCreatedAtDesc(groupId).stream()
+                .map(s -> new SettlementResponse(s.getId(),
+                        userIdToMemberId.get(s.getFromUser().getId()),
+                        userIdToMemberId.get(s.getToUser().getId()),
+                        s.getAmount(), settlementCurrency(s), s.getStatus().name(), s.getSettledAt()))
+                .toList();
     }
 
-    private User getUserOr404(Long userId) {
+    private static String settlementCurrency(Settlement s) {
+        return s.getCurrency() != null ? s.getCurrency() : "RWF";
+    }
+
+    private static String resolveCurrency(String currencyParam) {
+        return (currencyParam == null || currencyParam.isBlank())
+                ? "RWF"
+                : currencyParam.trim().toUpperCase();
+    }
+
+    private User getUserOr404(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 
-    private Group getGroupForMemberOr404(Long userId, Long groupId) {
+    private Group getGroupForMemberOr404(UUID userId, UUID groupId) {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new ResourceNotFoundException("Group not found"));
         if (!membershipRepository.existsByGroupIdAndUserId(groupId, userId)) {

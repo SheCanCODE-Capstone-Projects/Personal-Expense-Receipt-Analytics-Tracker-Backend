@@ -1,5 +1,5 @@
 package com.example.ExpenseTracker.controller;
-import com.example.ExpenseTracker.Exception.ResourceNotFoundException;
+import com.example.ExpenseTracker.service.ImportFileReader;
 import com.example.ExpenseTracker.service.ImportService;
 import com.example.ExpenseTracker.service.ImportService.ConfirmImportRequest;
 import com.example.ExpenseTracker.service.ImportService.ImportPreviewResponse;
@@ -10,31 +10,34 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 @RestController
 @RequestMapping("/api/imports")
+@io.swagger.v3.oas.annotations.tags.Tag(name = "Imports", description = "Preview a CSV or text-based PDF, correct the rows, then confirm. Scanned or image receipts get 415.")
 public class ImportController {
 public record CsvPreviewRequest(String csvContent) {}
 
         private final ImportService importService;
+        private final ImportFileReader fileReader;
 
-        public ImportController(ImportService importService) {
+        public ImportController(ImportService importService, ImportFileReader fileReader) {
             this.importService = importService;
+            this.fileReader = fileReader;
         }
 
         @PostMapping(value = "/preview", consumes = MediaType.APPLICATION_JSON_VALUE)
         public ResponseEntity<ImportPreviewResponse> previewJson(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @RequestParam(required = false) String currency,
-                @RequestParam(required = false) Long accountId,
-                @RequestParam(required = false) Long categoryId,
+                @RequestParam(required = false) UUID accountId,
+                @RequestParam(required = false) UUID categoryId,
                 @RequestBody CsvPreviewRequest request) {
             String content = request != null ? request.csvContent() : null;
             return ResponseEntity.ok(
@@ -43,10 +46,10 @@ public record CsvPreviewRequest(String csvContent) {}
 
         @PostMapping(value = "/preview", consumes = MediaType.TEXT_PLAIN_VALUE)
         public ResponseEntity<ImportPreviewResponse> previewPlainText(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @RequestParam(required = false) String currency,
-                @RequestParam(required = false) Long accountId,
-                @RequestParam(required = false) Long categoryId,
+                @RequestParam(required = false) UUID accountId,
+                @RequestParam(required = false) UUID categoryId,
                 @RequestBody String csvContent) {
             return ResponseEntity.ok(
                     importService.previewCsv(userId, csvContent, currency, accountId, categoryId));
@@ -54,27 +57,28 @@ public record CsvPreviewRequest(String csvContent) {}
 
         @PostMapping(value = "/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         public ResponseEntity<ImportPreviewResponse> previewMultipart(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @RequestParam(required = false) String currency,
-                @RequestParam(required = false) Long accountId,
-                @RequestParam(required = false) Long categoryId,
+                @RequestParam(required = false) UUID accountId,
+                @RequestParam(required = false) UUID categoryId,
                 @RequestParam("file") MultipartFile file) {
             if (file == null || file.isEmpty()) {
-                throw new IllegalArgumentException("CSV file is empty");
+                throw new IllegalArgumentException("Uploaded file is empty");
             }
-            String content;
+            ImportFileReader.Extracted extracted;
             try {
-                content = new String(file.getBytes(), StandardCharsets.UTF_8);
+                extracted = fileReader.read(file.getOriginalFilename(), file.getContentType(), file.getBytes());
             } catch (IOException e) {
-                throw new ResourceNotFoundException("Failed to read uploaded CSV file");
+                throw new IllegalArgumentException("Failed to read the uploaded file");
             }
-            return ResponseEntity.ok(
-                    importService.previewCsv(userId, content, currency, accountId, categoryId));
+            return ResponseEntity.ok(extracted.kind() == ImportFileReader.Kind.PDF
+                    ? importService.previewPdfText(userId, extracted.text(), currency, accountId, categoryId)
+                    : importService.previewCsv(userId, extracted.text(), currency, accountId, categoryId));
         }
 
         @PostMapping("/confirm")
         public ResponseEntity<ImportResultResponse> confirmImport(
-                @RequestHeader(value = "X-User-Id", defaultValue = "1") Long userId,
+                @AuthenticationPrincipal UUID userId,
                 @Valid @RequestBody ConfirmImportRequest request) {
             ImportResultResponse result = importService.confirmImport(userId, request);
             return ResponseEntity.status(HttpStatus.CREATED).body(result);

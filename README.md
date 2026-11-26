@@ -6,6 +6,7 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - All money values are **whole RWF** (integers). Other currencies are stored separately and are never mixed into the same total.
 - Every ID (users, transactions, categories, groups, members, …) is a **UUID** string.
+- **How to call the API** (sign-in, cookies, curl and `fetch` examples for every endpoint): **[API.md](API.md)**.
 - Deployment (Docker, staging and production pipeline, rollback) is covered step by step in **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
 **Quickest start:** `docker compose -f compose.dev.yml up --build`. This starts Postgres, the API with demo data, and an email inbox at http://localhost:8025 where sign-in codes arrive.
@@ -34,6 +35,7 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection | `jdbc:postgresql://localhost:5432/ExpenseTrackerSystem`, `postgres`/`postgres` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call `/api/**` | `http://localhost:5173,http://127.0.0.1:5173` |
 | `JWT_SECRET` | HS256 key that signs access and refresh tokens (at least 32 bytes; `openssl rand -base64 48`) | dev-only value; **required** in staging/prod |
+| `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE`, `AUTH_COOKIE_DOMAIN` | Session cookie flags. Use `SameSite=None` only when the frontend is on a different site from the API | `true`, `Strict`, none |
 | `SPRING_PROFILES_ACTIVE` | `dev`, `demo`, `staging` or `prod`. The `staging` and `prod` profiles have **no defaults** for the variables above, so a missing value stops startup | none |
 
 See `.env.example`, `deploy/env.staging.example` and `deploy/env.production.example`.
@@ -58,14 +60,13 @@ Shared categories (Food & Groceries, Transport, Rent & Housing, Utilities, Airti
 
 ## Live demo script
 
-Use Swagger UI, or the commands below (`$T` is the access token).
+Use Swagger UI, or curl with a cookie jar as shown in [API.md](API.md#from-the-command-line-curl) (`$C` holds those curl options).
 
-1. **Sign in.** Either `POST /api/auth/login {"email":"amina@demo.local","password":"Demo12345"}`, or request a code with `POST /api/auth/otp/request` and verify it with `POST /api/auth/otp/verify`. Paste the `accessToken` into **Authorize**. Paste it into jwt.io to show the claims.
+1. **Sign in.** Either `POST /api/auth/login {"email":"amina@demo.local","password":"Demo12345"}`, or request a code with `POST /api/auth/otp/request` and verify it with `POST /api/auth/otp/verify`. The session is set as HttpOnly cookies, so the other Swagger calls work straight away.
 2. **Dashboard.** `GET /api/dashboard` shows income, expenses, net, category totals, budget warnings, and the forecast with its explanation.
 3. **Import a CSV.**
    ```bash
-   curl -H "Authorization: Bearer $T" -F file=@samples/statement-october-2026.csv \
-        http://localhost:8080/api/imports/preview
+   curl "${C[@]}" -F file=@samples/statement-october-2026.csv http://localhost:8080/api/imports/preview
    ```
    Correct any rows, then send them to `POST /api/imports/confirm`. **Repeat both steps:** every row in the second preview is flagged `"Already in your transactions"`, and the confirm call returns `importedCount: 0`.
 4. **Import a PDF.** Upload `samples/statement-november-2026.pdf` (5 statement lines; balances are ignored) or `samples/receipt-simba.pdf` (one row taken from the TOTAL line). A scanned PDF or a photo is rejected with **415** and an explanation.
@@ -75,7 +76,7 @@ Use Swagger UI, or the commands below (`$T` is the access token).
 
 | Area | Endpoints |
 |---|---|
-| Auth (public) | `POST /auth/otp/request`, `POST /auth/otp/verify` (first time also takes `fullName`, `password`, `role`), `POST /auth/login {email, password}`, `POST /auth/refresh {refreshToken}` |
+| Auth (public) | `POST /auth/otp/request`, `POST /auth/otp/verify` (first time also takes `fullName`, `password`, `role`), `POST /auth/login {email, password}`, `POST /auth/refresh` (uses the refresh cookie) |
 | Auth (signed in) | `GET /auth/me`, `PUT /auth/me {fullName}`, `POST /auth/logout` (this session), `POST /auth/logout-all` (every device) |
 | Health (public) | `GET /actuator/health` |
 | Categories | `GET /categories?kind=EXPENSE\|INCOME`, `POST /categories {name, kind}`, `DELETE /categories/{id}` (your own, unused ones only) |
@@ -86,9 +87,9 @@ Use Swagger UI, or the commands below (`$T` is the access token).
 | Groups | `POST/GET /groups`, `POST/GET /groups/{id}/members`, `POST/GET /groups/{id}/expenses`, `GET /groups/{id}/balances?currency=`, `GET /groups/{id}/settlements/suggestions?currency=`, `POST/GET /groups/{id}/settlements` |
 
 Notes for clients:
-- Sign-in responses contain only `{accessToken, refreshToken}`, both signed JWTs. Decode the access token on the client for `sub` (user id), `email`, `name`, `role` and `exp`. Changing a claim breaks the signature, so the server rejects edited tokens.
+- Tokens are never in a response body. Sign-in sets HttpOnly `access_token` and `refresh_token` cookies (signed JWTs) and returns the profile `{userId, email, fullName, role, createdAt}`. Browsers must send `credentials: "include"`; use `GET /auth/me` to find out who is signed in.
 - The first `otp/verify` for a new email registers the account. `fullName` and `password` are required (8–72 characters, with a letter and a digit, stored as a BCrypt hash). `role` is optional and defaults to `MEMBER`; any role except `ADMIN` can be chosen.
-- Send `Authorization: Bearer <accessToken>`. Access tokens last 15 minutes. When a call returns 401, call `/auth/refresh` once; each refresh token works only once. If that also fails, sign in again.
+- Access tokens last 15 minutes. When a call returns 401, call `/auth/refresh` once; each refresh token works only once. If that also fails, sign in again. Cookie-authenticated writes must come from an origin in `CORS_ALLOWED_ORIGINS` (otherwise 403). Scripts may send `Authorization: Bearer` instead.
 - `categoryId` on a transaction is optional and defaults to **Other** / **Other Income**. The category must match the transaction type.
 - CSV columns: `date,amount[,type,merchant,description]`. Dates may be `YYYY-MM-DD`, `DD/MM/YYYY`, or `14 Nov 2026`. Files can be UTF-8 (with or without a BOM), UTF-16 with a BOM, or Windows-1252, which Excel uses by default.
 - When a confirm request omits `skipDuplicates`, it defaults to `true`. Set `allowDuplicate: true` on a row to import a genuine repeat.

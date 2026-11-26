@@ -18,6 +18,7 @@ import java.util.UUID;
  * for the frontend to decode; refresh tokens carry only what is needed to find the session.
  */
 @Component
+@lombok.extern.slf4j.Slf4j
 public class JwtService {
 
     public static final String ACCESS = "access";
@@ -33,6 +34,11 @@ public class JwtService {
         byte[] key = secret.getBytes(StandardCharsets.UTF_8);
         if (key.length < 32) {
             throw new IllegalStateException("app.auth.jwt-secret (JWT_SECRET) must be at least 32 bytes");
+        }
+        if (secret.startsWith("dev-only")) {
+            // The default is published in this repository, so it must never sign tokens on a public server.
+            log.warn("JWT_SECRET is not set: tokens are signed with the public development key. "
+                    + "Set JWT_SECRET (openssl rand -base64 48) on every deployed environment.");
         }
         SecretKey secretKey = new SecretKeySpec(key, "HmacSHA256");
         this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(secretKey));

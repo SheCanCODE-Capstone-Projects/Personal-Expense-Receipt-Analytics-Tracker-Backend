@@ -38,23 +38,28 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
 | `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE`, `AUTH_COOKIE_DOMAIN` | Session cookie flags. Use `SameSite=None` only when the frontend is on a different site from the API | `true`, `Strict`, none |
 | `SPRING_PROFILES_ACTIVE` | `dev`, `demo`, `staging` or `prod`. The `staging` and `prod` profiles have **no defaults** for the variables above, so a missing value stops startup | none |
 
-See `.env.example`, `deploy/env.staging.example` and `deploy/env.production.example`.
+See `.env.example`, `deploy/env.staging.example` and `deploy/env.production.example`. Check a file before using it with `sh deploy/check-env.sh development|staging|production <file>`; the full requirement table is in [DEPLOYMENT.md](DEPLOYMENT.md#environment-requirements-checked-before-every-deploy).
 
 > **Never enable the `demo` profile in production.** It sets `app.auth.log-codes=true`, which writes sign-in codes to the log so anyone with log access can sign in as any user.
 
-## Demo data (`demo` profile)
+## Demo data (`demo` profile or `APP_DEMO_SEED=true`)
 
-On first start, the `demo` profile creates:
+On first start, seeding creates five users. They all sign in with `POST /api/auth/login` and the password **`Demo12345`**:
 
-| User | Data |
-|---|---|
-| `amina@demo.local` (Amina Uwase) | Salary, rent, groceries, transport and data transactions this month; a 60,000 food budget and a 250,000 overall budget; owner of the **Kigali Flatmates** group |
-| `jean@demo.local` (Jean Habimana) | Salary and groceries this month; group member |
-| `eric@demo.local` (Eric Mugabo) | Group member |
+| User | Role | Data |
+|---|---|---|
+| `amina@demo.local` (Amina Uwase) | OWNER | 4 months of salary, rent, groceries, transport, utilities, data, TV subscription (recurring), shopping and health. Budgets this month: food (past its warning level), transport, entertainment and an overall budget, plus last month's budgets |
+| `jean@demo.local` (Jean Habimana) | TREASURER | 4 months of salary, rent, groceries, course fees and tutoring income. His food budget is exceeded. Owns **Office Lunch Club** |
+| `grace@demo.local` (Grace Ingabire) | MEMBER | 4 months of tailoring-business income, fabric stock, rent and groceries. Has a shopping budget |
+| `eric@demo.local` (Eric Mugabo) | MEMBER | Freelance income and a bus ticket this month |
+| `patrick@demo.local` (Patrick Niyonzima) | Guest | One expense this month |
 
-All three demo accounts also sign in with `POST /api/auth/login` using the password `Demo12345`.
+Groups:
+- **Kigali Flatmates** (Amina, Jean, Eric): *Dinner, RWF 30,000, paid by Amina, split equally*. Balances are +20,000 / −10,000 / −10,000.
+- **Musanze Weekend Trip** (Amina, Grace, Patrick, Jean): car hire with a **percentage** split (40/20/20/20), the lodge with **exact amounts**, and lunch split **equally**. Jean has already paid Grace 12,000.
+- **Office Lunch Club** (Jean, Eric, Grace): three lunches, one of them shared by only two people.
 
-Kigali Flatmates holds one bill: **Dinner, RWF 30,000, paid by Amina, split equally**. Balances are Amina +20,000, Jean −10,000 and Eric −10,000. Seeding runs once; if Amina already exists, nothing is changed.
+Seeding runs once. If Amina already exists, nothing is changed. To reload it into a fresh database, start once with `APP_DEMO_SEED=true`.
 
 Shared categories (Food & Groceries, Transport, Rent & Housing, Utilities, Airtime & Data, Health, Education, Entertainment, Shopping, Other; Salary, Business, Gifts, Other Income) are seeded on **every** start, in every profile, so a fresh database can record transactions immediately.
 
@@ -137,5 +142,6 @@ Every transaction stores a SHA-256 `fingerprint` of user, date, amount, currency
 | `BriefOutcomeTests` | Importing the same statement twice adds nothing. Text-PDF import works, and scanned or image uploads get 415. Settling a three-way RWF 30,000 split leaves 0/0/0. Group balances keep currencies apart. A brand-new member can use categories and open a dashboard whose totals reconcile. |
 | `ForecastCalculatorTests` | The forecast matches the formula on known figures, including rounding. |
 | `ImportParsingTests` | Statement and receipt PDF parsing, charset detection, the bundled sample files, and image rejection. |
-| `DemoDataSeederTests` | The demo seed is complete and runs only once (inside a rolled-back transaction). |
+| `DemoDataSeederTests` | The demo seed is complete (5 users, 4 months, 3 groups, every split type, balances sum to zero) and runs only once (inside a rolled-back transaction). |
+| `SwaggerBehindProxyTests` | Behind an HTTPS proxy, Swagger calls the same `https` origin, its own requests pass the CORS/CSRF check, and other origins are still refused. |
 | `AuthenticationTests` | OTP single use, attempt limits, token rotation, profile, logout, logout on every device, the public health check, and the Swagger security docs. |

@@ -35,11 +35,22 @@ class DemoDataSeederTests {
         seeder.run(null);
 
         java.util.UUID amina = users.findByEmailIgnoreCase(DemoDataSeeder.AMINA).orElseThrow().getId();
-        assertTrue(users.findByEmailIgnoreCase(DemoDataSeeder.JEAN).isPresent());
-        assertEquals(2, budgets.listByMonth(amina, YearMonth.now().toString(), "RWF").size());
-        var group = groups.listUserGroups(amina);
-        assertEquals(1, group.size());
+        for (String email : java.util.List.of(DemoDataSeeder.JEAN, DemoDataSeeder.ERIC, DemoDataSeeder.GRACE, DemoDataSeeder.PATRICK)) {
+            assertTrue(users.findByEmailIgnoreCase(email).isPresent(), email);
+        }
+        assertEquals(4, budgets.listByMonth(amina, YearMonth.now().toString(), "RWF").size());
+        assertTrue(transactions.list(amina, YearMonth.now().minusMonths(3).atDay(1), null, null, null, null, null, null).size() > 40,
+                "four months of history");
+
+        var aminaGroups = groups.listUserGroups(amina);
+        assertEquals(2, aminaGroups.size());
+        var flatmates = aminaGroups.stream().filter(g -> g.name().equals(DemoDataSeeder.FLATMATES)).findFirst().orElseThrow();
         assertEquals(java.util.List.of(20_000L, -10_000L, -10_000L),
-                groups.getBalances(amina, group.getFirst().id(), "RWF").stream().map(BalanceResponse::net).toList());
+                groups.getBalances(amina, flatmates.id(), "RWF").stream().map(BalanceResponse::net).toList());
+
+        // Every group's balances still add up to zero after percentage, exact and equal splits and a settlement.
+        var trip = aminaGroups.stream().filter(g -> g.name().equals(DemoDataSeeder.TRIP)).findFirst().orElseThrow();
+        assertEquals(0L, groups.getBalances(amina, trip.id(), "RWF").stream().mapToLong(BalanceResponse::net).sum());
+        assertEquals(1, groups.listSettlements(amina, trip.id()).size());
     }
 }

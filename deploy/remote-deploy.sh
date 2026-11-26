@@ -7,6 +7,20 @@ cd "$(dirname "$0")"
 
 [ -f .env ] || { echo "Missing .env: copy env.<environment>.example to .env and fill it in" >&2; exit 1; }
 
+# Check every required setting before touching the running release.
+case "$(sed -n 's/^SPRING_PROFILES_ACTIVE=//p' .env | tail -n 1)" in
+  prod) ENVIRONMENT=production ;;
+  staging) ENVIRONMENT=staging ;;
+  *) echo "SPRING_PROFILES_ACTIVE in .env must be staging or prod" >&2; exit 1 ;;
+esac
+echo "==> Checking .env for $ENVIRONMENT"
+sh ./check-env.sh "$ENVIRONMENT" .env
+
+# No DB_URL means the database runs in the bundled container.
+if [ -z "$(sed -n 's/^DB_URL=//p' .env | tail -n 1)" ]; then
+  export COMPOSE_PROFILES=bundled-db
+fi
+
 if [ "${1:-}" = "rollback" ]; then
   [ -f .previous-tag ] || { echo "No previous release recorded" >&2; exit 1; }
   TAG=$(cat .previous-tag)

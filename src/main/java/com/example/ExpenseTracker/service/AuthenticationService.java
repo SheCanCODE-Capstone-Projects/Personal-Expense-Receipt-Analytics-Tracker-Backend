@@ -10,8 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -32,7 +30,7 @@ public class AuthenticationService {
     private final EmailChallengeRepository challenges;
     private final AuthSessionRepository sessions;
     private final UserRepository users;
-    private final JavaMailSender mail;
+    private final SignInMailer mail;
     private final JwtService jwt;
     private final SecureRandom random = new SecureRandom();
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
@@ -40,9 +38,6 @@ public class AuthenticationService {
     // Marks accounts created before passwords existed; it never matches a BCrypt comparison.
     private static final String NO_PASSWORD = "!";
     private static final String DUMMY_HASH = new BCryptPasswordEncoder().encode("dummy-password-for-timing");
-
-    @Value("${app.auth.mail-from}")
-    private String sender;
 
     // Local demos only: write the code to the server log instead of emailing it.
     @Value("${app.auth.log-codes:false}")
@@ -67,13 +62,10 @@ public class AuthenticationService {
             return;
         }
 
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(sender);
-        message.setTo(users.findByEmailIgnoreCase(email).map(User::getEmail).orElse(address));
-        message.setSubject("Your Expense Tracker sign-in code");
-        message.setText("Your code is " + code + ". It expires in 10 minutes.");
+        String recipient = users.findByEmailIgnoreCase(email).map(User::getEmail).orElse(address);
         try {
-            mail.send(message);
+            mail.send(recipient, "Your Expense Tracker sign-in code",
+                    "Your code is " + code + ". It expires in 10 minutes.");
         } catch (MailException ex) {
             // The client only sees a generic 503; the log records why the SMTP server refused.
             log.error("Sign-in email to {} failed: {}", email, ex.getMostSpecificCause().getMessage());

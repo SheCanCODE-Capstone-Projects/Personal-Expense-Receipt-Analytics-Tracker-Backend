@@ -28,11 +28,14 @@ services:
       DB_URL: ${DB_URL:-jdbc:postgresql://db:5432/${POSTGRES_DB:-}}
       DB_USERNAME: ${DB_USERNAME:-${POSTGRES_USER:-}}
       DB_PASSWORD: ${DB_PASSWORD:-${POSTGRES_PASSWORD:-}}
-      SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST in .env}
+      # Email through Brevo: BREVO_API_KEY (HTTP API), or SMTP_USERNAME/SMTP_PASSWORD for its SMTP relay.
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
       SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USERNAME: ${SMTP_USERNAME:?set SMTP_USERNAME in .env}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:?set SMTP_PASSWORD in .env}
-      SMTP_FROM: ${SMTP_FROM:?set SMTP_FROM in .env}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:?set SMTP_FROM in .env (a sender verified in Brevo)}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Expense Tracker}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS in .env}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -base64 48)}
       # Optional: set AUTH_COOKIE_SAME_SITE=None when the frontend is served from a different site than the API.

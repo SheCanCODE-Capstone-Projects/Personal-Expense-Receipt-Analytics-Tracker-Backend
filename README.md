@@ -20,7 +20,7 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
    Connection settings are in `src/main/resources/application.properties` (default `postgres`/`postgres` on `localhost:5432`). Hibernate creates the schema on startup (`ddl-auto=update`).
 2. Run the API:
    ```bash
-   sh mvnw spring-boot:run                                        # normal (emails codes via SMTP_* env vars)
+   sh mvnw spring-boot:run                                        # normal (emails codes through Brevo)
    sh mvnw spring-boot:run -Dspring-boot.run.profiles=demo        # demo data + codes printed to the console
    ```
 3. Run the tests. They use a separate `ExpenseTrackerSystem_test` database, rebuilt on every run:
@@ -31,7 +31,9 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Email delivery for sign-in codes | `localhost:587` |
+| `BREVO_API_KEY` | Sends sign-in emails through the [Brevo](https://app.brevo.com) HTTP API (`xkeysib-…`). Recommended on Railway, which blocks SMTP on its smaller plans | none |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | Brevo SMTP relay, used when `BREVO_API_KEY` is empty. The username is your Brevo SMTP login and the password an SMTP key (`xsmtpsib-…`) | `smtp-relay.brevo.com:587` |
+| `SMTP_FROM`, `MAIL_FROM_NAME` | Sender address (must be verified in Brevo) and display name | `Expense Tracker` |
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection | `jdbc:postgresql://localhost:5432/ExpenseTrackerSystem`, `postgres`/`postgres` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call `/api/**` | `http://localhost:5173,http://127.0.0.1:5173` |
 | `JWT_SECRET` | HS256 key that signs access and refresh tokens (at least 32 bytes; `openssl rand -base64 48`) | dev-only value; **required** in staging/prod |

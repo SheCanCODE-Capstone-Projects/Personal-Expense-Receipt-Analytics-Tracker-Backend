@@ -31,16 +31,36 @@ need() {
       fail "$key is missing or empty"
     else
       case "$value" in
-        *change-me*|*example.com*|your-app-password|you@gmail.com)
+        *change-me*|*example.com*|*your-*|you@gmail.com|you@yourdomain.com)
           fail "$key still has the placeholder value from the example file" ;;
       esac
     fi
   done
 }
 
-# ---- Email (every environment sends sign-in codes) ----
-need SMTP_HOST SMTP_PORT SMTP_USERNAME SMTP_PASSWORD SMTP_FROM
-case "$(get SMTP_PORT)" in ''|*[!0-9]*) [ -z "$(get SMTP_PORT)" ] || fail "SMTP_PORT must be a number" ;; esac
+# ---- Email through Brevo: the HTTP API (BREVO_API_KEY) or the SMTP relay (SMTP_*) ----
+need SMTP_FROM
+BREVO_API_KEY=$(get BREVO_API_KEY)
+if [ -n "$BREVO_API_KEY" ]; then
+  need BREVO_API_KEY
+  case "$BREVO_API_KEY" in
+    xkeysib-*) ;;
+    xsmtpsib-*) fail "BREVO_API_KEY is an SMTP key (xsmtpsib-…). Use an API key (xkeysib-…), or put the SMTP key in SMTP_PASSWORD instead" ;;
+    *) fail "BREVO_API_KEY does not look like a Brevo API key (it starts with xkeysib-)" ;;
+  esac
+else
+  need SMTP_USERNAME SMTP_PASSWORD
+  case "$(get SMTP_PORT)" in ''|*[!0-9]*) [ -z "$(get SMTP_PORT)" ] || fail "SMTP_PORT must be a number" ;; esac
+  case "$(get SMTP_HOST)" in
+    ''|*brevo.com*|*sendinblue.com*)
+      case "$(get SMTP_PASSWORD)" in
+        ''|xsmtpsib-*) ;;
+        xkeysib-*) fail "SMTP_PASSWORD is a Brevo API key (xkeysib-…). SMTP needs an SMTP key (xsmtpsib-…), or set it as BREVO_API_KEY" ;;
+        *) warn "SMTP_PASSWORD does not look like a Brevo SMTP key (xsmtpsib-…)" ;;
+      esac ;;
+    *) warn "SMTP_HOST is not Brevo (smtp-relay.brevo.com)" ;;
+  esac
+fi
 
 # ---- Database: an external server (DB_URL, e.g. Railway) or, on servers, the bundled container ----
 DB_URL=$(get DB_URL)

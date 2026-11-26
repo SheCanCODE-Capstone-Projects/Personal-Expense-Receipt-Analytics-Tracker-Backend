@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -17,8 +18,8 @@ import java.util.List;
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @NotBlank(message = "Full name is required")
     @Column(name = "full_name", nullable = false)
@@ -31,6 +32,7 @@ public class User {
 
     @NotBlank(message = "Password is required")
     @Column(name = "hash_password", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String hashPassword;
 
     @Enumerated(EnumType.STRING)

@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "settlements")
@@ -17,8 +18,8 @@ import java.time.LocalDateTime;
 public class Settlement {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @NotNull(message = "Amount is required")
     @Positive(message = "Settlement amount must be greater than zero")
@@ -29,6 +30,10 @@ public class Settlement {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ESettlementStatus status = ESettlementStatus.PENDING;
+
+    // Nullable so existing rows survive the schema update; null is read as RWF.
+    @Column(length = 3)
+    private String currency;
 
     @Column(name = "settled_at")
     private LocalDateTime settledAt;

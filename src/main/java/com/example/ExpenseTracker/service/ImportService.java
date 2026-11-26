@@ -3,14 +3,18 @@ import com.example.ExpenseTracker.Exception.ResourceNotFoundException;
 import com.example.ExpenseTracker.Model.Account;
 import com.example.ExpenseTracker.Model.Category;
 import com.example.ExpenseTracker.Model.EAccount;
+import com.example.ExpenseTracker.Model.EImportStatus;
 import com.example.ExpenseTracker.Model.ETransactionType;
+import com.example.ExpenseTracker.Model.ImportBatch;
 import com.example.ExpenseTracker.Model.Transaction;
 import com.example.ExpenseTracker.Model.User;
 import com.example.ExpenseTracker.Repository.AccountRepository;
 import com.example.ExpenseTracker.Repository.CategoryRepository;
+import com.example.ExpenseTracker.Repository.ImportBatchRepository;
 import com.example.ExpenseTracker.Repository.TransactionRepository;
 import com.example.ExpenseTracker.Repository.UserRepository;
 import com.example.ExpenseTracker.core.MoneyParser;
+import com.example.ExpenseTracker.core.StatementTextParser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
@@ -18,15 +22,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 @Service
 @Transactional
 public class ImportService {
-
-
 
     public record ParsedRow(
                 int rowNumber,
@@ -38,13 +42,15 @@ public class ImportService {
                 String description,
                 String fingerprint,
                 boolean duplicate,
+                String duplicateReason,
                 String error
         ) {}
 
         public record ImportPreviewResponse(
+                String fileType,
                 String currency,
-                Long accountId,
-                Long categoryId,
+                UUID accountId,
+                UUID categoryId,
                 int totalRows,
                 int validRows,
                 int duplicateRows,
@@ -53,10 +59,12 @@ public class ImportService {
         ) {}
 
         public record ConfirmImportRequest(
-                Long accountId,
-                Long categoryId,
+                UUID accountId,
+                UUID categoryId,
                 String currency,
-                boolean skipDuplicates,
+                String fileName,
+                // Null means true: re-importing the same statement must not create duplicates.
+                Boolean skipDuplicates,
                 List<ImportRowInput> rows
         ) {}
 
@@ -65,62 +73,116 @@ public class ImportService {
                 long amount,
                 ETransactionType type,
                 String merchant,
-                String description
+                String description,
+                UUID categoryId,
+                Boolean allowDuplicate
         ) {}
 
         public record ImportResultResponse(
+                UUID batchId,
                 int importedCount,
                 int skippedDuplicates,
-                List<Long> createdTransactionIds
+                List<UUID> createdTransactionIds
         ) {}
+
+        private record RowDraft(int rowNumber, LocalDate date, long amount, ETransactionType type,
+                                String merchant, String description, String error, String raw) {}
 
         private final TransactionRepository transactionRepository;
         private final AccountRepository accountRepository;
         private final CategoryRepository categoryRepository;
         private final UserRepository userRepository;
+        private final ImportBatchRepository importBatchRepository;
+        private final CategoryService categoryService;
 
         public ImportService(
                 TransactionRepository transactionRepository,
                 AccountRepository accountRepository,
                 CategoryRepository categoryRepository,
-                UserRepository userRepository) {
+                UserRepository userRepository,
+                ImportBatchRepository importBatchRepository,
+                CategoryService categoryService) {
             this.transactionRepository = transactionRepository;
             this.accountRepository = accountRepository;
             this.categoryRepository = categoryRepository;
             this.userRepository = userRepository;
+            this.importBatchRepository = importBatchRepository;
+            this.categoryService = categoryService;
         }
 
-        @Transactional(readOnly = true)
         public ImportPreviewResponse previewCsv(
-                Long userId,
+                UUID userId,
                 String csvContent,
                 String currencyParam,
-                Long accountId,
-                Long categoryId) {
-
-            getUserOr404(userId);
-            Account account = resolveAccount(userId, accountId);
-            Category category = resolveCategory(userId, categoryId);
-            String currency = resolveCurrency(currencyParam, account.getCurrency());
-
+                UUID accountId,
+                UUID categoryId) {
             if (csvContent == null || csvContent.isBlank()) {
                 throw new IllegalArgumentException("CSV content is empty");
             }
 
             String[] lines = csvContent.split("\\R");
-            List<ParsedRow> parsedRows = new ArrayList<>();
+            List<RowDraft> drafts = new ArrayList<>();
             int rowNumber = 0;
-
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i].trim();
+            boolean seenContent = false;
+            for (String rawLine : lines) {
+                String line = rawLine.trim();
                 if (line.isEmpty()) {
                     continue;
                 }
-                if (i == 0 && looksLikeHeader(line)) {
-                    continue;
+                if (!seenContent) {
+                    seenContent = true;
+                    if (looksLikeHeader(line)) {
+                        continue;
+                    }
                 }
                 rowNumber++;
-                parsedRows.add(parseLine(rowNumber, line, userId, currency));
+                drafts.add(parseLine(rowNumber, line));
+            }
+            return buildPreview(userId, "CSV", drafts, currencyParam, accountId, categoryId);
+        }
+
+        public ImportPreviewResponse previewPdfText(
+                UUID userId,
+                String text,
+                String currencyParam,
+                UUID accountId,
+                UUID categoryId) {
+            List<RowDraft> drafts = StatementTextParser.parse(text).stream()
+                    .map(c -> new RowDraft(c.line(), c.date(), c.amount(), c.type(), c.merchant(), c.description(), null, null))
+                    .toList();
+            if (drafts.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "No transactions found in the PDF. Each statement line needs a date and an amount, "
+                                + "or a receipt needs a date and a TOTAL line.");
+            }
+            return buildPreview(userId, "PDF", drafts, currencyParam, accountId, categoryId);
+        }
+
+        private ImportPreviewResponse buildPreview(UUID userId, String fileType, List<RowDraft> drafts,
+                                                   String currencyParam, UUID accountId, UUID categoryId) {
+            getUserOr404(userId);
+            Account account = resolveAccount(userId, accountId);
+            Category category = categoryId != null ? resolveCategory(userId, categoryId) : null;
+            String currency = resolveCurrency(currencyParam, account.getCurrency());
+
+            Set<String> seenInFile = new HashSet<>();
+            List<ParsedRow> parsedRows = new ArrayList<>();
+            for (RowDraft d : drafts) {
+                if (d.error() != null) {
+                    parsedRows.add(new ParsedRow(d.rowNumber(), d.date(), d.amount(), currency, d.type(), null,
+                            d.raw(), null, false, null, d.error()));
+                    continue;
+                }
+                String fingerprint = buildFingerprint(
+                        userId, d.date().atStartOfDay(), d.amount(), currency, d.type(), d.merchant(), d.description());
+                String duplicateReason = null;
+                if (transactionRepository.existsByUserIdAndFingerprint(userId, fingerprint)) {
+                    duplicateReason = "Already in your transactions";
+                } else if (!seenInFile.add(fingerprint)) {
+                    duplicateReason = "Repeated earlier in this file";
+                }
+                parsedRows.add(new ParsedRow(d.rowNumber(), d.date(), d.amount(), currency, d.type(), d.merchant(),
+                        d.description(), fingerprint, duplicateReason != null, duplicateReason, null));
             }
 
             int duplicateCount = (int) parsedRows.stream().filter(r -> r.error() == null && r.duplicate()).count();
@@ -128,6 +190,7 @@ public class ImportService {
             int validCount = parsedRows.size() - invalidCount;
 
             return new ImportPreviewResponse(
+                    fileType,
                     currency,
                     account.getId(),
                     category != null ? category.getId() : null,
@@ -139,19 +202,21 @@ public class ImportService {
             );
         }
 
-        public ImportResultResponse confirmImport(Long userId, ConfirmImportRequest request) {
+        public ImportResultResponse confirmImport(UUID userId, ConfirmImportRequest request) {
             User user = getUserOr404(userId);
             Account account = resolveAccount(userId, request.accountId());
-            Category category = resolveCategory(userId, request.categoryId());
+            Category defaultCategory = request.categoryId() != null ? resolveCategory(userId, request.categoryId()) : null;
             String currency = resolveCurrency(request.currency(), account.getCurrency());
+            boolean skipDuplicates = request.skipDuplicates() == null || request.skipDuplicates();
 
             if (request.rows() == null || request.rows().isEmpty()) {
                 throw new IllegalArgumentException("No rows provided to import");
             }
 
-            int importedCount = 0;
+            List<String> fingerprints = new ArrayList<>();
+            List<Transaction> pending = new ArrayList<>();
+            Set<String> acceptedInRequest = new HashSet<>();
             int skippedDuplicates = 0;
-            List<Long> createdIds = new ArrayList<>();
 
             for (ImportRowInput row : request.rows()) {
                 if (row.date() == null) {
@@ -164,19 +229,23 @@ public class ImportService {
                 LocalDateTime txDateTime = row.date().atStartOfDay();
 
                 String fingerprint = buildFingerprint(
-                        userId,
-                        txDateTime,
-                        row.amount(),
-                        currency,
-                        type,
-                        row.merchant(),
-                        row.description()
-                );
+                        userId, txDateTime, row.amount(), currency, type, row.merchant(), row.description());
+                fingerprints.add(fingerprint);
 
-                boolean exists = transactionRepository.existsByUserIdAndFingerprint(userId, fingerprint);
-                if (exists && request.skipDuplicates()) {
+                boolean duplicate = transactionRepository.existsByUserIdAndFingerprint(userId, fingerprint)
+                        || acceptedInRequest.contains(fingerprint);
+                if (duplicate && skipDuplicates && !Boolean.TRUE.equals(row.allowDuplicate())) {
                     skippedDuplicates++;
                     continue;
+                }
+                acceptedInRequest.add(fingerprint);
+
+                Category category = row.categoryId() != null ? resolveCategory(userId, row.categoryId())
+                        : defaultCategory != null && defaultCategory.getType() == type ? defaultCategory
+                        : categoryService.fallback(type);
+                if (category.getType() != type) {
+                    throw new IllegalArgumentException("Category '" + category.getName() + "' is for "
+                            + category.getType() + " transactions");
                 }
 
                 Transaction tx = new Transaction();
@@ -191,16 +260,28 @@ public class ImportService {
                 tx.setDescription(row.description());
                 tx.setRecurring(false);
                 tx.setFingerprint(fingerprint);
-
-                Transaction saved = transactionRepository.save(tx);
-                createdIds.add(saved.getId());
-                importedCount++;
+                pending.add(tx);
             }
 
-            return new ImportResultResponse(importedCount, skippedDuplicates, createdIds);
+            ImportBatch batch = new ImportBatch();
+            batch.setUser(user);
+            batch.setFileName(request.fileName() != null && !request.fileName().isBlank() ? request.fileName().trim() : "import");
+            batch.setFileHash(sha256(String.join(",", fingerprints)));
+            batch.setTotalRows(request.rows().size());
+            batch.setImportedRows(pending.size());
+            batch.setImportStatus(skippedDuplicates == 0 ? EImportStatus.COMPLETED : EImportStatus.PARTIALLY_COMPLETED);
+            ImportBatch savedBatch = importBatchRepository.save(batch);
+
+            List<UUID> createdIds = new ArrayList<>();
+            for (Transaction tx : pending) {
+                tx.setImportBatch(savedBatch);
+                createdIds.add(transactionRepository.save(tx).getId());
+            }
+
+            return new ImportResultResponse(savedBatch.getId(), pending.size(), skippedDuplicates, createdIds);
         }
 
-        private ParsedRow parseLine(int rowNumber, String line, Long userId, String currency) {
+        private RowDraft parseLine(int rowNumber, String line) {
             // Expected columns: date,amount,type,merchant,description (type, merchant, description optional)
             String[] parts = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1);
             for (int i = 0; i < parts.length; i++) {
@@ -208,58 +289,41 @@ public class ImportService {
             }
 
             if (parts.length < 2) {
-                return new ParsedRow(
-                        rowNumber, null, 0L, currency, null, null, line,
-                        null, false, "Expected at least date and amount columns"
-                );
+                return error(rowNumber, line, null, "Expected at least date and amount columns");
             }
 
-            LocalDate date;
-            try {
-                date = LocalDate.parse(parts[0]);
-            } catch (DateTimeParseException ex) {
-                return new ParsedRow(
-                        rowNumber, null, 0L, currency, null, null, line,
-                        null, false, "Invalid date '" + parts[0] + "' (use YYYY-MM-DD)"
-                );
+            LocalDate date = StatementTextParser.parseDate(parts[0]);
+            if (date == null) {
+                return error(rowNumber, line, null, "Invalid date '" + parts[0] + "' (use YYYY-MM-DD)");
             }
 
             long amount;
             try {
                 amount = MoneyParser.parseWholeUnits(parts[1]);
-                if (amount <= 0L) {
-                    throw new IllegalArgumentException("Amount must be greater than zero");
-                }
             } catch (Exception ex) {
-                return new ParsedRow(
-                        rowNumber, date, 0L, currency, null, null, line,
-                        null, false, "Invalid amount '" + parts[1] + "'"
-                );
+                return error(rowNumber, line, date, "Invalid amount '" + parts[1] + "'");
+            }
+            if (amount == 0L) {
+                return error(rowNumber, line, date, "Amount must not be zero");
             }
 
+            // Bank exports often write debits as negative numbers; the sign is dropped and the row stays an expense.
             ETransactionType type = ETransactionType.EXPENSE;
             if (parts.length >= 3 && !parts[2].isBlank()) {
                 try {
                     type = ETransactionType.valueOf(parts[2].trim().toUpperCase());
                 } catch (IllegalArgumentException ex) {
-                    return new ParsedRow(
-                            rowNumber, date, amount, currency, null, null, line,
-                            null, false, "Invalid transaction type '" + parts[2] + "'"
-                    );
+                    return error(rowNumber, line, date, "Invalid transaction type '" + parts[2] + "' (use INCOME or EXPENSE)");
                 }
             }
 
             String merchant = (parts.length >= 4 && !parts[3].isBlank()) ? parts[3].trim() : null;
             String description = (parts.length >= 5 && !parts[4].isBlank()) ? parts[4].trim() : null;
+            return new RowDraft(rowNumber, date, Math.abs(amount), type, merchant, description, null, line);
+        }
 
-            String fingerprint = buildFingerprint(
-                    userId, date.atStartOfDay(), amount, currency, type, merchant, description);
-            boolean duplicate = transactionRepository.existsByUserIdAndFingerprint(userId, fingerprint);
-
-            return new ParsedRow(
-                    rowNumber, date, amount, currency, type, merchant, description,
-                    fingerprint, duplicate, null
-            );
+        private static RowDraft error(int rowNumber, String line, LocalDate date, String message) {
+            return new RowDraft(rowNumber, date, 0L, null, null, null, message, line);
         }
 
         private boolean looksLikeHeader(String firstLine) {
@@ -267,12 +331,12 @@ public class ImportService {
             return lower.contains("date") && lower.contains("amount");
         }
 
-        private User getUserOr404(Long userId) {
+        private User getUserOr404(UUID userId) {
             return userRepository.findById(userId)
                     .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         }
 
-        private Account resolveAccount(Long userId, Long accountId) {
+        private Account resolveAccount(UUID userId, UUID accountId) {
             if (accountId != null) {
                 return accountRepository.findByIdAndUser_Id(accountId, userId)
                         .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
@@ -290,10 +354,7 @@ public class ImportService {
             return accountRepository.save(defaultAccount);
         }
 
-        private Category resolveCategory(Long userId, Long categoryId) {
-            if (categoryId == null) {
-                return null;
-            }
+        private Category resolveCategory(UUID userId, UUID categoryId) {
             Category category = categoryRepository.findById(categoryId)
                     .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
             if (category.getUser() != null && !category.getUser().getId().equals(userId)) {
@@ -313,21 +374,24 @@ public class ImportService {
         }
 
         private String buildFingerprint(
-                Long userId,
+                UUID userId,
                 LocalDateTime dateTime,
                 Long amount,
                 String currency,
                 ETransactionType type,
                 String merchant,
                 String note) {
-            String raw = String.join("|",
+            return sha256(String.join("|",
                     String.valueOf(userId),
                     dateTime.toLocalDate().toString(),
                     String.valueOf(amount),
                     currency != null ? currency : "RWF",
                     type != null ? type.name() : "",
                     merchant != null ? merchant.trim().toLowerCase() : "",
-                    note != null ? note.trim().toLowerCase() : "");
+                    note != null ? note.trim().toLowerCase() : ""));
+        }
+
+        private static String sha256(String raw) {
             try {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));

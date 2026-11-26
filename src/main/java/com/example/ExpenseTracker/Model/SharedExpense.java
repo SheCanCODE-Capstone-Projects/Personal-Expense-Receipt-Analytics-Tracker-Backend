@@ -5,6 +5,7 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
     @Table(name = "shared_expenses")
@@ -15,8 +16,8 @@ import java.util.List;
 public class SharedExpense {
 
         @Id
-        @GeneratedValue(strategy = GenerationType.IDENTITY)
-        private Long id;
+        @GeneratedValue(strategy = GenerationType.UUID)
+        private UUID id;
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "group_id", nullable = false)
         private Group group;

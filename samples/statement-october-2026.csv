@@ -1,0 +1,9 @@
+date,amount,type,merchant,description
+2026-10-01,450000,INCOME,Employer Ltd,Monthly salary
+2026-10-01,120000,EXPENSE,Landlord,Rent
+2026-10-02,18500,EXPENSE,Simba Supermarket,Weekly shop
+2026-10-03,"3,000",EXPENSE,Moto,Commute
+2026-10-05,10000,EXPENSE,MTN,Data bundle
+2026-10-09,22400,EXPENSE,Kimironko Market,Groceries
+2026-10-14,8000,EXPENSE,Moto,Commute
+2026-10-20,35000,EXPENSE,Canal+,Subscription

@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "expense_groups")
@@ -16,8 +17,8 @@ import java.util.List;
 public class Group {
 
         @Id
-        @GeneratedValue(strategy = GenerationType.IDENTITY)
-        private Long id;
+        @GeneratedValue(strategy = GenerationType.UUID)
+        private UUID id;
 
         @NotBlank(message = "Group name is required")
         @Column(nullable = false)

@@ -23,7 +23,7 @@ public class OpenAPIConfig {
         return  new OpenAPI().info(new Info()
                 .title("Personal Expense Tracker API")
                 .version("1.0")
-                .description("REST API for transactions, budgets, dashboard, accounts and UserAuthentication")
+                .description("Expense tracking API. For passwordless sign-in, start with the Authentication endpoints.")
                 ).security(List.of(new SecurityRequirement().addList("BearerAuth")))
                 ;
     }

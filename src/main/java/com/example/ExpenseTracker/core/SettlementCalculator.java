@@ -5,16 +5,17 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.UUID;
 
 public final class SettlementCalculator {
 
     private SettlementCalculator() {}
 
-    public record Transfer(Long fromId, Long toId, long amount) {}
+    public record Transfer(UUID fromId, UUID toId, long amount) {}
 
-    private record PartyBalance(Long id, long amount) {}
+    private record PartyBalance(UUID id, long amount) {}
 
-    public static List<Transfer> settle(Map<Long, Long> netBalancesById) {
+    public static List<Transfer> settle(Map<UUID, Long> netBalancesById) {
         if (netBalancesById == null || netBalancesById.isEmpty()) {
             return List.of();
         }
@@ -27,7 +28,7 @@ public final class SettlementCalculator {
         PriorityQueue<PartyBalance> debtors = new PriorityQueue<>(
                 Comparator.comparingLong(PartyBalance::amount).reversed());
 
-        for (Map.Entry<Long, Long> entry : netBalancesById.entrySet()) {
+        for (Map.Entry<UUID, Long> entry : netBalancesById.entrySet()) {
             long net = entry.getValue() != null ? entry.getValue() : 0L;
             if (net > 0L) {
                 creditors.add(new PartyBalance(entry.getKey(), net));

@@ -1,0 +1,40 @@
+name: SSH deploy
+description: Copy the deploy files to a server, roll out an image tag, and smoke-test the health endpoint.
+inputs:
+  tag: { required: true, description: Image tag to deploy }
+  host: { required: true, description: Server hostname }
+  user: { required: true, description: SSH user (must be in the docker group) }
+  ssh-key: { required: true, description: Private key for that user }
+  known-hosts: { required: true, description: "Output of ssh-keyscan for the host, so the server's identity is verified" }
+  path: { required: true, description: Directory on the server holding .env }
+  app-url: { required: true, description: Public base URL, e.g. https://api.example.com }
+  registry-token: { required: true, description: Token allowed to pull from ghcr.io }
+runs:
+  using: composite
+  steps:
+    - name: Configure SSH
+      shell: bash
+      run: |
+        install -m 700 -d ~/.ssh
+        printf '%s\n' "${{ inputs.ssh-key }}" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+        printf '%s\n' "${{ inputs.known-hosts }}" > ~/.ssh/known_hosts
+    - name: Copy deploy files
+      shell: bash
+      run: |
+        scp -i ~/.ssh/deploy_key compose.deploy.yml deploy/Caddyfile deploy/remote-deploy.sh \
+          "${{ inputs.user }}@${{ inputs.host }}:${{ inputs.path }}/"
+    - name: Roll out ${{ inputs.tag }}
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key "${{ inputs.user }}@${{ inputs.host }}" \
+          "echo '${{ inputs.registry-token }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin \
+           && sh '${{ inputs.path }}/remote-deploy.sh' '${{ inputs.tag }}'; status=\$?; docker logout ghcr.io >/dev/null; exit \$status"
+    - name: Smoke test
+      shell: bash
+      run: |
+        for i in $(seq 1 20); do
+          if curl -fsS "${{ inputs.app-url }}/actuator/health" | grep -q '"UP"'; then echo "Healthy"; exit 0; fi
+          sleep 6
+        done
+        echo "Health check failed at ${{ inputs.app-url }}/actuator/health" >&2
+        exit 1

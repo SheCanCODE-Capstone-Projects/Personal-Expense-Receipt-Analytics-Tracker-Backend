@@ -155,6 +155,22 @@ Checks at each layer:
 2. **Server:** `check-env.sh` checks the server's `.env`, as above.
 3. **Startup:** the `staging`/`prod` profiles have no defaults, and `ProductionSafetyCheck` refuses unsafe production settings.
 
+## Running the API on Railway
+
+The Railway app reads its settings from **Service → Variables**. Set:
+
+| Variable | Value |
+|---|---|
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | The Railway database, in the JDBC form shown below |
+| `JWT_SECRET` | **Required.** Output of `openssl rand -base64 48`. Without it, tokens are signed with the development key published in this repository, and the log warns about it at startup |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | The mail account that sends sign-in codes |
+| `CORS_ALLOWED_ORIGINS` | The frontend URL(s), e.g. `https://my-frontend.vercel.app`. Swagger on the API's own domain works without being listed |
+| `AUTH_COOKIE_SAME_SITE` | `None` if the frontend is on another domain (e.g. Vercel); otherwise leave unset |
+| `APP_DEMO_SEED` | `true` once to load the demo data into an empty database |
+| `SPRING_PROFILES_ACTIVE` | Optional. `prod` turns on the production safety checks; then also set `SWAGGER_ENABLED=true` to keep Swagger |
+
+Opening the bare URL redirects to Swagger UI. Railway's HTTPS proxy forwards `X-Forwarded-Proto`, and the app uses it, so Swagger calls the API over `https`.
+
 ## Using Railway PostgreSQL
 
 Railway shows a URL of the form `postgresql://USER:PASSWORD@HOST:PORT/DATABASE`. Spring needs it split into three settings:

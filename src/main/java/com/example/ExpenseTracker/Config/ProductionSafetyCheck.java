@@ -15,7 +15,13 @@ public class ProductionSafetyCheck {
             @Value("${app.auth.log-codes:false}") boolean logCodes,
             @Value("${app.demo.seed:false}") boolean demoSeed,
             @Value("${app.cors.allowed-origins}") List<String> origins,
-            @Value("${app.auth.jwt-secret}") String jwtSecret) {
+            @Value("${app.auth.jwt-secret}") String jwtSecret,
+            @Value("${app.mail.brevo-api-key:}") String brevoApiKey,
+            @Value("${spring.mail.username:}") String smtpUsername,
+            @Value("${spring.mail.password:}") String smtpPassword) {
+        if (brevoApiKey.isBlank() && (smtpUsername.isBlank() || smtpPassword.isBlank())) {
+            throw new IllegalStateException("Email is not configured: set BREVO_API_KEY, or SMTP_USERNAME and SMTP_PASSWORD (Brevo SMTP key)");
+        }
         if (jwtSecret.startsWith("dev-only")) {
             throw new IllegalStateException("JWT_SECRET must be set to a private random value in production");
         }

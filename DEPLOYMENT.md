@@ -116,7 +116,8 @@ chmod 600 /opt/expense-tracker/.env
 | `IMAGE` | Leave as given |
 | `DOMAIN` | The DNS name from 3.1 |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Generate the password with `openssl rand -base64 32` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | A real mail provider, e.g. Brevo, Mailgun, SES, or a Gmail app password |
+| `SMTP_FROM`, `MAIL_FROM_NAME` | The sender, which must be verified in Brevo (see [Email through Brevo](#email-through-brevo)) |
+| `BREVO_API_KEY` **or** `SMTP_USERNAME` + `SMTP_PASSWORD` | Brevo API key (`xkeysib-…`), or Brevo SMTP login + SMTP key (`xsmtpsib-…`) |
 | `CORS_ALLOWED_ORIGINS` | The deployed frontend URL(s). Production refuses `localhost` and `*` |
 | `JWT_SECRET` | `openssl rand -base64 48`, with a different value per environment. Changing it signs everyone out |
 | `AUTH_COOKIE_SAME_SITE` | Optional. Leave `Strict` when the frontend and API share a site (`app.example.com` + `api.example.com`); use `None` when they don't |
@@ -135,7 +136,8 @@ cd /opt/expense-tracker && sh check-env.sh staging .env      # or: production
 
 | Setting | Development | Staging | Production |
 |---|---|---|---|
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | ✓ | ✓ | ✓ |
+| `SMTP_FROM` (sender verified in Brevo) | ✓ | ✓ | ✓ |
+| Email: `BREVO_API_KEY` (`xkeysib-…`) **or** `SMTP_USERNAME` + `SMTP_PASSWORD` (`xsmtpsib-…`) | ✓ one of the two | ✓ one of the two | ✓ one of the two |
 | Database: `DB_URL` + `DB_USERNAME` + `DB_PASSWORD` (external, e.g. Railway) | optional (local default) | ✓ one of the two | ✓ one of the two |
 | Database: `POSTGRES_DB` + `POSTGRES_USER` + `POSTGRES_PASSWORD` (bundled container) | — | ✓ one of the two | ✓ one of the two |
 | `SPRING_PROFILES_ACTIVE` | — (`dev`/`demo` optional) | `staging` | `prod` |
@@ -163,13 +165,28 @@ The Railway app reads its settings from **Service → Variables**. Set:
 |---|---|
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | The Railway database, in the JDBC form shown below |
 | `JWT_SECRET` | **Required.** Output of `openssl rand -base64 48`. Without it, tokens are signed with the development key published in this repository, and the log warns about it at startup |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | The mail account that sends sign-in codes |
+| `BREVO_API_KEY`, `SMTP_FROM`, `MAIL_FROM_NAME` | Brevo API key and verified sender. **Use the API key, not SMTP**: Railway blocks outgoing SMTP on its Free, Trial and Hobby plans |
 | `CORS_ALLOWED_ORIGINS` | The frontend URL(s), e.g. `https://my-frontend.vercel.app`. Swagger on the API's own domain works without being listed |
 | `AUTH_COOKIE_SAME_SITE` | `None` if the frontend is on another domain (e.g. Vercel); otherwise leave unset |
 | `APP_DEMO_SEED` | `true` once to load the demo data into an empty database |
 | `SPRING_PROFILES_ACTIVE` | Optional. `prod` turns on the production safety checks; then also set `SWAGGER_ENABLED=true` to keep Swagger |
 
 Opening the bare URL redirects to Swagger UI. Railway's HTTPS proxy forwards `X-Forwarded-Proto`, and the app uses it, so Swagger calls the API over `https`.
+
+## Email through Brevo
+
+Sign-in codes are sent through [Brevo](https://app.brevo.com).
+
+1. **Verify the sender.** In **Senders, Domains & Dedicated IPs → Senders**, add the address you will use as `SMTP_FROM` and confirm it from its inbox. For better delivery, authenticate your own domain under **Domains** (Brevo gives you the DKIM/DMARC DNS records).
+2. **Get a credential.** In **SMTP & API**, either:
+   - **API Keys → Generate a new API key.** Set it as `BREVO_API_KEY` (`xkeysib-…`). The app then sends over HTTPS, which works everywhere, including Railway. Recommended.
+   - **SMTP → Generate a new SMTP key.** Set `SMTP_USERNAME` to the *Login* shown there (`…@smtp-brevo.com`, not your account email) and `SMTP_PASSWORD` to the key (`xsmtpsib-…`). Host `smtp-relay.brevo.com`, port `587` are the defaults.
+3. **Set `SMTP_FROM`** to the verified sender, and optionally `MAIL_FROM_NAME`.
+4. **Check the file:** `sh deploy/check-env.sh <environment> .env`. It flags the common mix-up of an API key in the SMTP field or the other way round.
+
+If `BREVO_API_KEY` is set, it is used and the SMTP settings are ignored. The log line at startup says which one is active. When sending fails, the API returns `503 Email delivery unavailable`, and the server log has Brevo's reason (e.g. an unverified sender).
+
+Brevo's free plan allows 300 emails a day.
 
 ## Using Railway PostgreSQL
 

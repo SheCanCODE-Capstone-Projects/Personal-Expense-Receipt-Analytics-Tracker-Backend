@@ -1,5 +1,7 @@
 # Deployment Guide
 
+For how to call the API once it is running, see [API.md](API.md).
+
 The API moves through three environments:
 
 | Environment | Where it runs | How it is deployed | Spring profile |
@@ -111,6 +113,7 @@ chmod 600 /opt/expense-tracker/.env
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | A real mail provider, e.g. Brevo, Mailgun, SES, or a Gmail app password |
 | `CORS_ALLOWED_ORIGINS` | The deployed frontend URL(s). Production refuses `localhost` and `*` |
 | `JWT_SECRET` | `openssl rand -base64 48`, with a different value per environment. Changing it signs everyone out |
+| `AUTH_COOKIE_SAME_SITE` | Optional. Leave `Strict` when the frontend and API share a site (`app.example.com` + `api.example.com`); use `None` when they don't |
 
 A missing value stops the deployment with `set X in .env` before anything starts. Production also refuses to start if the demo seed or console sign-in codes are enabled.
 

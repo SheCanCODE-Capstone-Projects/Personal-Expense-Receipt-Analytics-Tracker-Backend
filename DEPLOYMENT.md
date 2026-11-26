@@ -43,6 +43,12 @@ docker compose -f compose.dev.yml down -v
 
 To run without Docker, start a local Postgres and run `sh mvnw spring-boot:run -Dspring-boot.run.profiles=dev`. The defaults are listed in `.env.example`.
 
+To run from the IDE or `mvnw`, copy `.env.example` to `.env`, fill it in, and check it:
+```bash
+sh deploy/check-env.sh development .env
+```
+`DB_URL` can point at a local Postgres or a hosted one such as Railway (see [Using Railway PostgreSQL](#using-railway-postgresql)).
+
 ### Tests
 
 The tests use a separate database, `ExpenseTrackerSystem_test`, which is rebuilt on every run. Create it once:
@@ -115,7 +121,52 @@ chmod 600 /opt/expense-tracker/.env
 | `JWT_SECRET` | `openssl rand -base64 48`, with a different value per environment. Changing it signs everyone out |
 | `AUTH_COOKIE_SAME_SITE` | Optional. Leave `Strict` when the frontend and API share a site (`app.example.com` + `api.example.com`); use `None` when they don't |
 
-A missing value stops the deployment with `set X in .env` before anything starts. Production also refuses to start if the demo seed or console sign-in codes are enabled.
+**3.5 Check the file before the first deploy:**
+```bash
+cd /opt/expense-tracker && sh check-env.sh staging .env      # or: production
+```
+`remote-deploy.sh` runs the same check on every release. If anything is wrong, it lists **every** problem and stops before the running version is touched.
+
+---
+
+## Environment requirements (checked before every deploy)
+
+`deploy/check-env.sh` enforces this table. ✓ = required, — = not used.
+
+| Setting | Development | Staging | Production |
+|---|---|---|---|
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | ✓ | ✓ | ✓ |
+| Database: `DB_URL` + `DB_USERNAME` + `DB_PASSWORD` (external, e.g. Railway) | optional (local default) | ✓ one of the two | ✓ one of the two |
+| Database: `POSTGRES_DB` + `POSTGRES_USER` + `POSTGRES_PASSWORD` (bundled container) | — | ✓ one of the two | ✓ one of the two |
+| `SPRING_PROFILES_ACTIVE` | — (`dev`/`demo` optional) | `staging` | `prod` |
+| `IMAGE`, `DOMAIN` | — | ✓ | ✓ |
+| `JWT_SECRET` (≥ 32 characters, not the dev default) | optional | ✓ | ✓ |
+| `CORS_ALLOWED_ORIGINS` | optional | ✓ | ✓ `https://` only, no `localhost` or `*` |
+| `AUTH_COOKIE_SECURE` | optional | not `false` | not `false` |
+| `AUTH_COOKIE_SAME_SITE` | optional | `Strict`/`Lax`/`None` | `Strict`/`Lax`/`None` |
+| `APP_DEMO_SEED`, `APP_AUTH_LOG_CODES` | optional | optional | must not be `true` |
+
+Rules for every environment:
+- **Placeholders:** example values such as `change-me` or `example.com` count as missing.
+- **`DB_URL`:** must be a JDBC URL (`jdbc:postgresql://…`). A remote database without `sslmode=require` gets a warning.
+
+Checks at each layer:
+1. **GitHub job:** `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_PATH` and an `https://` `APP_URL` must be set in that GitHub Environment.
+2. **Server:** `check-env.sh` checks the server's `.env`, as above.
+3. **Startup:** the `staging`/`prod` profiles have no defaults, and `ProductionSafetyCheck` refuses unsafe production settings.
+
+## Using Railway PostgreSQL
+
+Railway shows a URL of the form `postgresql://USER:PASSWORD@HOST:PORT/DATABASE`. Spring needs it split into three settings:
+```
+DB_URL=jdbc:postgresql://HOST:PORT/DATABASE?sslmode=require
+DB_USERNAME=USER
+DB_PASSWORD=PASSWORD
+```
+- **Where to set it:** put these in `.env` locally, or in the server's `.env` for staging/production. When `DB_URL` is set, the bundled `db` container is not started.
+- **One database per environment:** create a separate Railway database for development, staging and production, so test data never mixes with real data.
+- **Schema:** tables are created on first start.
+- **Backups:** with Railway, back up from Railway's dashboard instead of the `pg_dump` commands in §5.
 
 ---
 

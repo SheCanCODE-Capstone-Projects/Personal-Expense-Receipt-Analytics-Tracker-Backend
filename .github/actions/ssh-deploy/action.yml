@@ -12,6 +12,25 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check deployment settings
+      shell: bash
+      env:
+        DEPLOY_HOST: ${{ inputs.host }}
+        DEPLOY_USER: ${{ inputs.user }}
+        DEPLOY_SSH_KEY: ${{ inputs.ssh-key }}
+        DEPLOY_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+        DEPLOY_PATH: ${{ inputs.path }}
+        APP_URL: ${{ inputs.app-url }}
+      run: |
+        missing=0
+        for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_PATH APP_URL; do
+          if [ -z "${!name}" ]; then
+            echo "::error::$name is not set in the '${{ github.job }}' environment (Settings → Environments)"
+            missing=1
+          fi
+        done
+        case "$APP_URL" in ''|https://*) ;; *) echo "::error::APP_URL must start with https://"; missing=1 ;; esac
+        exit $missing
     - name: Configure SSH
       shell: bash
       run: |
@@ -21,7 +40,7 @@ runs:
     - name: Copy deploy files
       shell: bash
       run: |
-        scp -i ~/.ssh/deploy_key compose.deploy.yml deploy/Caddyfile deploy/remote-deploy.sh \
+        scp -i ~/.ssh/deploy_key compose.deploy.yml deploy/Caddyfile deploy/remote-deploy.sh deploy/check-env.sh \
           "${{ inputs.user }}@${{ inputs.host }}:${{ inputs.path }}/"
     - name: Roll out ${{ inputs.tag }}
       shell: bash

@@ -2,13 +2,16 @@
 # (see deploy/env.staging.example and deploy/env.production.example).
 # deploy/remote-deploy.sh runs it with IMAGE_TAG set to the release being deployed.
 services:
+  # Bundled database, started only when .env has no DB_URL (remote-deploy.sh enables the profile).
+  # With DB_URL set (e.g. Railway or another managed PostgreSQL), this container is not started.
   db:
     image: postgres:16-alpine
+    profiles: [bundled-db]
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-}
+      POSTGRES_USER: ${POSTGRES_USER:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes: [db-data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -19,12 +22,12 @@ services:
     image: ${IMAGE:?set IMAGE in .env}:${IMAGE_TAG:?IMAGE_TAG is set by the deploy script}
     restart: unless-stopped
     depends_on:
-      db: { condition: service_healthy }
+      db: { condition: service_healthy, required: false }
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:?set SPRING_PROFILES_ACTIVE to staging or prod}
-      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
-      DB_USERNAME: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_URL: ${DB_URL:-jdbc:postgresql://db:5432/${POSTGRES_DB:-}}
+      DB_USERNAME: ${DB_USERNAME:-${POSTGRES_USER:-}}
+      DB_PASSWORD: ${DB_PASSWORD:-${POSTGRES_PASSWORD:-}}
       SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST in .env}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:?set SMTP_USERNAME in .env}

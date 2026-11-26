@@ -38,7 +38,7 @@ Spring Boot 4 (Java 21+) REST API with PostgreSQL. It handles passwordless email
 | `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE`, `AUTH_COOKIE_DOMAIN` | Session cookie flags. Use `SameSite=None` only when the frontend is on a different site from the API | `true`, `Strict`, none |
 | `SPRING_PROFILES_ACTIVE` | `dev`, `demo`, `staging` or `prod`. The `staging` and `prod` profiles have **no defaults** for the variables above, so a missing value stops startup | none |
 
-See `.env.example`, `deploy/env.staging.example` and `deploy/env.production.example`.
+See `.env.example`, `deploy/env.staging.example` and `deploy/env.production.example`. Check a file before using it with `sh deploy/check-env.sh development|staging|production <file>`; the full requirement table is in [DEPLOYMENT.md](DEPLOYMENT.md#environment-requirements-checked-before-every-deploy).
 
 > **Never enable the `demo` profile in production.** It sets `app.auth.log-codes=true`, which writes sign-in codes to the log so anyone with log access can sign in as any user.
 
